@@ -1,0 +1,155 @@
+@import 'tailwindcss';
+
+/* ==========================================================================
+   Waresport Sales Hub — design tokens.
+
+   Colours and typography are taken from waresport.com's own stylesheet
+   (_next/static/css/48ac5ccdb11af9ff.css), not invented:
+     brand red      #E60027   (the site's primary action colour)
+     brand red dark #C4001F   (its hover state)
+     brand red lift #F20A31   (its brighter accent)
+     ink            #111927 / #0A0A0A  (its dark surfaces)
+     typeface       Inter, with a system fallback stack
+
+   The application is an internal workspace, not the marketing site, so the
+   red is used sparingly: primary actions, the active nav item, and genuine
+   alerts. Everything else is neutral so data reads first.
+   ========================================================================== */
+
+@theme {
+  --font-sans:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --color-brand-50: #fff1f3;
+  --color-brand-100: #ffe0e5;
+  --color-brand-200: #ffc6d0;
+  --color-brand-300: #ff9dae;
+  --color-brand-400: #fa5c78;
+  --color-brand-500: #e60027;
+  --color-brand-600: #c4001f;
+  --color-brand-700: #a3001a;
+  --color-brand-800: #870418;
+  --color-brand-900: #740b19;
+
+  --color-ink-50: #f7f8f9;
+  --color-ink-100: #eef0f3;
+  --color-ink-200: #dde1e7;
+  --color-ink-300: #c3cad4;
+  --color-ink-400: #8d97a6;
+  --color-ink-500: #5f6b7c;
+  --color-ink-600: #465060;
+  --color-ink-700: #333b47;
+  --color-ink-800: #1f2733;
+  --color-ink-900: #111927;
+  --color-ink-950: #0a0a0a;
+
+  --color-positive-50: #ecfdf3;
+  --color-positive-100: #d1fadf;
+  --color-positive-600: #067647;
+  --color-positive-700: #05603a;
+
+  --color-caution-50: #fffaeb;
+  --color-caution-100: #fef0c7;
+  --color-caution-600: #b54708;
+  --color-caution-700: #93370d;
+
+  --color-info-50: #eff8ff;
+  --color-info-100: #d1e9ff;
+  --color-info-600: #175cd3;
+  --color-info-700: #1849a9;
+
+  --radius-card: 0.75rem;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+  --surface: #ffffff;
+  --surface-sunken: #f7f8f9;
+  --border: #dde1e7;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--surface-sunken);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A visible, high-contrast focus ring everywhere — never removed. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Respect a reader's motion preference; motion here is decorative only. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Utilities used across the workspace
+   -------------------------------------------------------------------------- */
+
+@utility skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  background: var(--color-ink-900);
+  color: #fff;
+  border-radius: 0 0 0.5rem 0;
+
+  &:focus {
+    left: 0;
+  }
+}
+
+/* Numeric columns line up when digits share a width. */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Screen-reader-only text that stays focusable. */
+@utility sr-only-focusable {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+
+  &:focus {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+}
+
+/* Long imported notes must wrap, never stretch a table. */
+@utility wrap-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

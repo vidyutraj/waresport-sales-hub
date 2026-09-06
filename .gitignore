@@ -1,0 +1,21 @@
+node_modules/
+.next/
+out/
+build/
+.DS_Store
+*.pem
+npm-debug.log*
+.env
+.env.local
+.env*.local
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/
+/coverage/
+# Private, non-committed working area: real prospect CSVs, uploaded files, exports.
+/private/
+/storage/

@@ -1,0 +1,43 @@
+# Local development + test infrastructure for Waresport Sales Hub.
+# Two small services only: a real PostgreSQL database and a local SMTP capture
+# server (Mailpit) that receives every OTP / invitation email in development.
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: waresport_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: waresport
+      # Deterministic collation so ORDER BY results match across machines.
+      POSTGRES_INITDB_ARGS: '--locale=C --encoding=UTF8'
+    ports:
+      - '54329:5432'
+    volumes:
+      - waresport_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d waresport']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mail:
+    image: axllent/mailpit:latest
+    container_name: waresport_mail
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+      MP_MAX_MESSAGES: 5000
+    ports:
+      - '54325:1025' # SMTP
+      - '54324:8025' # Web UI + JSON API (used by Playwright to read OTP codes)
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  waresport_pgdata:
