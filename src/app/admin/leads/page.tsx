@@ -1,7 +1,12 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth/session';
 import { asUser } from '@/lib/db';
-import { leadFilterOptions, listLeads, type LeadFilters } from '@/lib/queries/leads';
+import {
+  countUnallocatedLeads,
+  leadFilterOptions,
+  listLeads,
+  type LeadFilters,
+} from '@/lib/queries/leads';
 import { listPeople } from '@/lib/services/admin';
 import { listImportBatches } from '@/lib/services/import';
 import { listTerritories } from '@/lib/queries/program';
@@ -21,6 +26,7 @@ import {
 } from '@/components/ui';
 import { LeadFilterBar } from '@/components/client/lead-filter-bar';
 import { LeadAssignmentTable } from '@/components/client/lead-assignment-table';
+import { AllocateBatchForm } from '@/components/client/allocate-batch-form';
 
 export const metadata = { title: 'Leads & imports' };
 export const dynamic = 'force-dynamic';
@@ -58,6 +64,7 @@ export default async function AdminLeadsPage({ searchParams }: { searchParams: S
     interns: (await listPeople(tx, { role: 'intern' })).filter((p) => p.status === 'active'),
     territories: await listTerritories(tx),
     batches: await listImportBatches(tx, 5),
+    unallocatedHere: await countUnallocatedLeads(tx, filters),
     unassignedCount: Number(
       (
         await tx<{ c: string }[]>`
@@ -87,7 +94,7 @@ export default async function AdminLeadsPage({ searchParams }: { searchParams: S
     <>
       <PageHeader
         title="Leads & imports"
-        description="Import club lists, then filter and allocate them to interns."
+        description="Import club lists, then allocate them to interns a batch at a time. Anything you do not allocate waits in Unallocated."
         actions={
           <>
             <LinkButton href="/admin/leads/import" variant="primary">
@@ -124,6 +131,67 @@ export default async function AdminLeadsPage({ searchParams }: { searchParams: S
         />
       </div>
 
+      <div className="mb-4 flex flex-wrap gap-1" role="tablist" aria-label="Allocation views">
+        {(
+          [
+            { key: '', label: 'All clubs', count: null },
+            { key: 'unassigned', label: 'Unallocated', count: data.unassignedCount },
+            { key: 'assigned', label: 'Allocated', count: null },
+          ] as const
+        ).map((tab) => {
+          const active = (filters.assignment ?? '') === tab.key;
+          const next = new URLSearchParams(queryString.toString());
+          if (tab.key) next.set('assignment', tab.key);
+          else next.delete('assignment');
+          next.delete('page');
+          return (
+            <Link
+              key={tab.label}
+              href={`/admin/leads${next.toString() ? `?${next.toString()}` : ''}`}
+              role="tab"
+              aria-selected={active}
+              className={
+                active
+                  ? 'rounded-lg bg-ink-900 px-3 py-1.5 text-[13px] font-medium text-white'
+                  : 'rounded-lg border border-ink-200 px-3 py-1.5 text-[13px] font-medium text-ink-700 hover:border-ink-300 hover:bg-ink-50'
+              }
+            >
+              {tab.label}
+              {tab.count !== null ? ` (${tab.count.toLocaleString()})` : ''}
+            </Link>
+          );
+        })}
+      </div>
+
+      {filters.assignment === 'unassigned' ? (
+        <Card className="mb-4">
+          <CardHeader
+            title="Allocate a batch"
+            description="Hand out as many as you want now; the rest stay here for next time."
+          />
+          <CardBody>
+            <AllocateBatchForm
+              interns={data.interns.map((i) => ({
+                id: i.id,
+                name: i.preferredName ?? i.fullName ?? i.email,
+                territoryCode: i.territoryCode,
+              }))}
+              unallocatedCount={data.unallocatedHere}
+              filters={{
+                q: filters.search ?? '',
+                state: filters.state ?? '',
+                city: filters.city ?? '',
+                sport: filters.sport ?? '',
+                source: filters.source ?? '',
+                status: filters.status ?? '',
+                territoryId: filters.territoryId ?? '',
+                contactability: filters.contactability ?? '',
+              }}
+            />
+          </CardBody>
+        </Card>
+      ) : null}
+
       <Card className="mb-4">
         <LeadFilterBar
           basePath="/admin/leads"
@@ -153,8 +221,16 @@ export default async function AdminLeadsPage({ searchParams }: { searchParams: S
       <Card className="mb-5">
         {data.leads.rows.length === 0 ? (
           <EmptyState
-            title="No clubs match those filters"
-            description="Widen the filters, or import a lead list to get started."
+            title={
+              filters.assignment === 'unassigned'
+                ? 'Everything here is allocated'
+                : 'No clubs match those filters'
+            }
+            description={
+              filters.assignment === 'unassigned'
+                ? 'Every club matching these filters belongs to an intern. Import more leads when you need them.'
+                : 'Widen the filters, or import a lead list to get started.'
+            }
             action={
               <LinkButton href="/admin/leads/import" variant="primary">
                 Import CSV

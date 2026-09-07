@@ -79,11 +79,20 @@ npm run user:create -- --email owner@waresport.local --name "Your Name" --role o
 npm run dev                       # http://localhost:3000
 ```
 
-Sign in at <http://localhost:3000/sign-in>. There are no passwords and no
-codes: the page lists every profile and you pick your own. That is
-identification, not authentication — anyone who can reach the app can pick any
-listed profile — so run it on a trusted network. Roles still decide what each
-account can do, and row level security enforces that in the database.
+Sign in at <http://localhost:3000/sign-in>. The page lists every profile and
+you pick your own. Interns need nothing else: for them this is identification,
+not authentication, so run the app on a trusted network. **Admin and owner
+accounts also have to enter a password**, which is what stops an intern simply
+picking the admin card. An admin account with no password set cannot be signed
+into at all.
+
+`user:create` prints a generated password for an admin or owner unless you pass
+`--password`. To change one later (this also signs that account out
+everywhere):
+
+```bash
+npm run user:set-password -- --email you@waresport.com --password "a long passphrase"
+```
 
 Add more people with the same command, or from *Interns → Add someone* once an
 owner exists:
@@ -112,9 +121,17 @@ To start over: `npm run db:reset` (drops the volume, re-migrates, re-seeds).
 5. **Import leads** — *Leads & Imports → Import CSV*. Upload, review the preview
    (nothing is written yet), then confirm. The report accounts for every parsed
    row in mutually exclusive buckets; rejected rows can be downloaded as CSV.
-6. **Assign clubs** — *Leads & Imports*. Filter, select, then assign to one
-   intern or distribute evenly. Bulk changes show a preview first, and a
-   cross-territory assignment needs a typed reason.
+6. **Allocate clubs** — *Leads & Imports*. Three tabs: **All clubs**,
+   **Unallocated** and **Allocated**. Newly imported clubs land in Unallocated
+   and stay there until you hand them out.
+   - *Allocate a batch* (on the Unallocated tab) is the usual path: say how
+     many and to whom, and that many go out — the rest wait for next time. It
+     always takes from the top of the unallocated queue for the filters you
+     have applied, and never touches a club someone already owns, so running it
+     again hands out the next batch.
+   - Or select rows by hand and assign them to one intern or distribute evenly.
+   Bulk changes show a preview first, and a cross-territory assignment needs a
+   typed reason.
 7. **Set targets** — *Targets & Program*. Cohort defaults, or a per-intern
    override from that intern's page. A week that has already ended keeps the
    target it was worked under.
@@ -201,6 +218,7 @@ that **must** be replaced.
 | `APP_URL` | Must be the real `https://` origin. Session cookies are marked `Secure` when it is, and it is used for the sign-out origin check. |
 | `SMTP_*`, `MAIL_FROM` | A real provider. **This is the one external dependency that cannot be verified locally** — see below. |
 | `SESSION_TTL_HOURS` | How long a session cookie stays valid. |
+| `AUTH_SECRET` | Keys the session-token digest. Admin passwords are scrypt-hashed and do not depend on it. |
 | `AUTH_REQUEST_LIMIT_*`, `AUTH_VERIFY_LIMIT_*`, `AUTH_RATE_WINDOW_SECONDS` | Rate limits. Defaults are strict; raise only with a reason. |
 | `IMPORT_MAX_FILE_BYTES`, `IMPORT_MAX_ROWS` | Import guardrails. |
 | `STORAGE_DIR` | Private resource attachments. Must be writable and **must not** be web-served; files are streamed through an authorization-checked route. |
@@ -254,7 +272,10 @@ proxy, forward `X-Forwarded-For` so per-address rate limiting sees real clients.
   owner can grant admin, and a database trigger enforces it.
 - Sign-out is POST-only. A GET sign-out is fired by link prefetching or a
   cross-site `<img>`.
-- Session tokens are stored only as keyed SHA-256 digests.
+- Session tokens are stored only as keyed SHA-256 digests, and admin passwords
+  as salted scrypt hashes. Ten wrong passwords locks that account for 15
+  minutes; a database trigger rejects any attempt to change a password through
+  the request-scoped connection.
 - Deactivating an account revokes its sessions immediately.
 - The audit log is append-only for every role, including owners.
 - Only `http(s)` links are ever rendered as anchors; imported `javascript:` and

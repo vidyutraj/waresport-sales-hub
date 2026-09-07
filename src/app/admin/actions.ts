@@ -20,6 +20,11 @@ import {
 } from '@/lib/services/admin';
 import { bulkAssign, planEvenDistribution, unassignOrganization } from '@/lib/services/assignment';
 import {
+  countUnallocatedLeads,
+  listUnallocatedLeadIds,
+  type LeadFilters,
+} from '@/lib/queries/leads';
+import {
   changeAttribution,
   recordPayout,
   rejectHeld,
@@ -52,6 +57,7 @@ const addPersonSchema = z.object({
   email: z.string().trim().email('Enter a valid email address.'),
   fullName: z.string().trim().max(120).optional(),
   role: z.enum(['intern', 'admin']),
+  password: z.string().max(200).optional(),
   cohortId: z
     .string()
     .uuid()
@@ -80,12 +86,19 @@ export async function addPersonAction(_prev: FormState, formData: FormData): Pro
   if (input.role === 'admin' && actor.role !== 'owner') {
     return fail('Only the owner can add an admin.');
   }
+  // An admin account is useless without one: it cannot sign in at all.
+  if (input.role === 'admin' && !input.password?.trim()) {
+    return fail('An admin account needs a password.', {
+      password: 'Set a password for this admin.',
+    });
+  }
 
   try {
     await createUserAccount({
       email: input.email,
       fullName: input.fullName ?? null,
       role: input.role,
+      password: input.password?.trim() || null,
       cohortId: input.cohortId ?? null,
       territoryId: input.territoryId ?? null,
       actorUserId: actor.id,
@@ -97,7 +110,11 @@ export async function addPersonAction(_prev: FormState, formData: FormData): Pro
 
   revalidatePath('/admin/interns');
   revalidatePath('/sign-in');
-  return ok(`${input.email} can now sign in by picking their name.`);
+  return ok(
+    input.role === 'admin'
+      ? `${input.email} can now sign in with that password.`
+      : `${input.email} can now sign in by picking their name.`,
+  );
 }
 
 const activeSchema = z.object({
@@ -268,6 +285,101 @@ const assignSchema = z.object({
   reason: z.string().trim().max(300).optional(),
   territoryOverrideReason: z.string().trim().max(300).optional(),
 });
+
+const allocateSchema = z.object({
+  internUserId: z.string().uuid('Pick an intern.'),
+  count: z.coerce.number().int().min(1, 'Allocate at least one club.').max(500),
+  reason: z.string().trim().max(300).optional(),
+  territoryOverrideReason: z.string().trim().max(300).optional(),
+  // The filters the admin was looking at, so "the next 20" means the next 20
+  // of what is on screen.
+  q: z.string().trim().max(200).optional(),
+  state: z.string().trim().max(2).optional(),
+  city: z.string().trim().max(120).optional(),
+  sport: z.string().trim().max(60).optional(),
+  source: z.string().trim().max(120).optional(),
+  status: z.string().trim().max(40).optional(),
+  territoryId: z
+    .string()
+    .uuid()
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  contactability: z.enum(['email', 'phone', 'either', 'none']).optional(),
+});
+
+/**
+ * Allocate the next N unallocated clubs to one intern.
+ *
+ * This is the "give Carly 20 of these for now" path: the admin says how many
+ * and to whom, the server takes that many from the top of the *unallocated*
+ * queue for the current filters, and everything else stays unallocated for the
+ * next round. Clubs already owned by someone are never touched, so running it
+ * twice allocates the next batch rather than reshuffling the first.
+ */
+export async function allocateBatchAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const actor = await assertAdmin();
+  const parsed = parseForm(allocateSchema, formData);
+  if (!parsed.ok) return parsed.state;
+  const input = parsed.data;
+
+  const filters: LeadFilters = {
+    search: input.q ?? null,
+    state: input.state ?? null,
+    city: input.city ?? null,
+    sport: input.sport ?? null,
+    source: input.source ?? null,
+    status: input.status ?? null,
+    territoryId: input.territoryId ?? null,
+    contactability: input.contactability ?? null,
+    assignment: 'unassigned',
+  };
+
+  try {
+    const outcome = await asUser(actor.id, async (tx) => {
+      const candidates = await listUnallocatedLeadIds(tx, filters, input.count);
+      if (candidates.length === 0) return { empty: true as const };
+
+      const result = await bulkAssign(tx, {
+        actorUserId: actor.id,
+        actorRole: actor.role as 'owner' | 'admin',
+        organizationIds: candidates.map((c) => c.id),
+        internUserId: input.internUserId,
+        reason: input.reason ?? 'Batch allocation',
+        territoryOverrideReason: input.territoryOverrideReason ?? null,
+      });
+      const remaining = await countUnallocatedLeads(tx, filters);
+      return { empty: false as const, asked: candidates.length, result, remaining };
+    });
+
+    if (outcome.empty) {
+      return fail('There are no unallocated clubs matching those filters.');
+    }
+
+    revalidatePath('/admin/leads');
+    revalidatePath('/leads');
+
+    const { result, remaining, asked } = outcome;
+    const left = `${remaining.toLocaleString()} still unallocated${
+      remaining > 0 ? ' — allocate them whenever you are ready' : ''
+    }.`;
+
+    if (result.failures.length > 0) {
+      return {
+        status: 'error',
+        message:
+          `${result.assigned} of ${asked} allocated. ${result.failures.length} could not be: ` +
+          `${result.failures[0]?.reason ?? ''} ${left}`,
+        fieldErrors: {},
+      };
+    }
+    return ok(`Allocated ${result.assigned} club(s). ${left}`);
+  } catch (error) {
+    return toFormState(error, 'Could not allocate those clubs.');
+  }
+}
 
 export async function assignLeadsAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const actor = await assertAdmin();

@@ -4,7 +4,9 @@ import { expect, type Page } from '@playwright/test';
  * End-to-end helpers.
  *
  * Sign-in is the real product flow: /sign-in lists every account and you pick
- * one. Nothing is stubbed and no email is involved — the app sends none.
+ * one. An intern is in at that point; an admin or owner then has to pass the
+ * password step. Nothing is stubbed and no email is involved — the app sends
+ * none.
  */
 
 /** Accounts used across the acceptance flows. */
@@ -12,13 +14,34 @@ export const OWNER_EMAIL = 'owner@waresport.local';
 export const INTERN_A = 'intern.east@waresport.local';
 export const INTERN_B = 'intern.west@waresport.local';
 
-/** Sign in by picking the account with this email address. */
-export async function signIn(page: Page, email: string): Promise<void> {
+/** The owner password the global setup installs. */
+export const OWNER_PASSWORD = 'acceptance-owner-passphrase';
+
+/** Passwords for the password-gated accounts, by address. */
+const PASSWORDS: Record<string, string> = { [OWNER_EMAIL]: OWNER_PASSWORD };
+
+/**
+ * Sign in by picking the account with this email address, passing the password
+ * step when the account has one.
+ */
+export async function signIn(page: Page, email: string, password?: string): Promise<void> {
   await page.goto('/sign-in');
   const choice = page.getByRole('button', { name: new RegExp(escapeRegExp(email), 'i') });
   await expect(choice).toBeVisible({ timeout: 10_000 });
   await choice.click();
-  await page.waitForURL((url) => !url.pathname.startsWith('/sign-in'), { timeout: 20_000 });
+
+  // Admin and owner accounts land on the password step first.
+  await page.waitForURL(
+    (url) => !url.pathname.startsWith('/sign-in') || url.searchParams.has('user'),
+    { timeout: 20_000 },
+  );
+  if (new URL(page.url()).searchParams.has('user')) {
+    const secret = password ?? PASSWORDS[email];
+    if (secret === undefined) throw new Error(`${email} needs a password and none was supplied.`);
+    await page.getByLabel(/password/i).fill(secret);
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    await page.waitForURL((url) => !url.pathname.startsWith('/sign-in'), { timeout: 20_000 });
+  }
 }
 
 function escapeRegExp(value: string): string {

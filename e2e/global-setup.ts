@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
+import { hashPassword } from '../src/lib/auth/password';
 
 config({ path: resolve(process.cwd(), '.env.local'), quiet: true });
 config({ path: resolve(process.cwd(), '.env'), quiet: true });
@@ -15,6 +16,8 @@ config({ path: resolve(process.cwd(), '.env'), quiet: true });
  */
 
 const OWNER_EMAIL = 'owner@waresport.local';
+// Kept in step with e2e/helpers.ts, which types it into the password step.
+const OWNER_PASSWORD = 'acceptance-owner-passphrase';
 
 const BUSINESS_TABLES = [
   'audit_events',
@@ -88,10 +91,14 @@ export default async function globalSetup() {
     // shell out. It is the same INSERT `npm run user:create` performs.
     await sql`
       INSERT INTO users (email, role, status, full_name, timezone,
-                         email_verified_at, onboarding_completed_at, program_acknowledged_at)
+                         email_verified_at, onboarding_completed_at, program_acknowledged_at,
+                         password_hash, password_set_at)
       VALUES (${OWNER_EMAIL}, 'owner', 'active', 'Alex Owner', 'America/New_York',
-              now(), now(), now())
-      ON CONFLICT (email) DO UPDATE SET role = 'owner', status = 'active'`;
+              now(), now(), now(), ${hashPassword(OWNER_PASSWORD)}, now())
+      ON CONFLICT (email) DO UPDATE
+        SET role = 'owner', status = 'active',
+            password_hash = EXCLUDED.password_hash, password_set_at = now(),
+            failed_password_attempts = 0, password_locked_until = NULL`;
   } finally {
     await sql.end({ timeout: 5 });
   }

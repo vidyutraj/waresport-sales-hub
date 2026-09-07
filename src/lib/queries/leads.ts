@@ -61,6 +61,46 @@ export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 200;
 
 /**
+ * The shared lead predicate.
+ *
+ * Both the paginated table and the "allocate N of these" action filter with
+ * this one fragment, so the count an admin sees and the rows the server
+ * actually allocates can never drift apart. It assumes the caller has joined
+ * `organizations o` and, as `a`, the current (un-ended) assignment row.
+ */
+function leadPredicate(tx: Tx, filters: LeadFilters) {
+  const search = (filters.search ?? '').trim();
+  return tx`
+    o.is_archived = false
+        AND (${search || null}::text IS NULL OR (
+              o.name_normalized LIKE '%' || app.normalize_name(${search || null}) || '%'
+              OR EXISTS (
+                SELECT 1 FROM contacts c
+                WHERE c.organization_id = o.id AND c.is_archived = false
+                  AND (c.email_normalized LIKE '%' || lower(${search || null}) || '%'
+                       OR app.normalize_name(c.full_name) LIKE '%' || app.normalize_name(${search || null}) || '%')
+              )))
+        AND (${filters.territoryId ?? null}::uuid IS NULL OR o.territory_id = ${filters.territoryId ?? null})
+        AND (${filters.state ?? null}::text IS NULL OR o.state = ${filters.state ?? null})
+        AND (${filters.city ?? null}::text IS NULL OR o.city_normalized = app.normalize_name(${filters.city ?? null}))
+        AND (${filters.sport ?? null}::text IS NULL OR o.sport = ${filters.sport ?? null})
+        AND (${filters.source ?? null}::text IS NULL OR o.source = ${filters.source ?? null})
+        AND (${filters.status ?? null}::text IS NULL OR o.status::text = ${filters.status ?? null})
+        AND (${filters.assigneeId ?? null}::uuid IS NULL OR a.intern_user_id = ${filters.assigneeId ?? null})
+        AND (${filters.assignment ?? null}::text IS NULL
+             OR (${filters.assignment ?? null} = 'assigned' AND a.id IS NOT NULL)
+             OR (${filters.assignment ?? null} = 'unassigned' AND a.id IS NULL))
+        AND (${filters.contactability ?? null}::text IS NULL OR (
+              CASE ${filters.contactability ?? null}
+                WHEN 'email'  THEN EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = o.id AND c.email_valid AND c.is_archived = false)
+                WHEN 'phone'  THEN EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = o.id AND c.phone_valid AND c.is_archived = false)
+                WHEN 'either' THEN EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = o.id AND (c.email_valid OR c.phone_valid) AND c.is_archived = false)
+                WHEN 'none'   THEN NOT EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = o.id AND (c.email_valid OR c.phone_valid) AND c.is_archived = false)
+                ELSE true
+              END))`;
+}
+
+/**
  * Server-side paginated lead list. All filtering and sorting happens in SQL so
  * a large import stays responsive and the count is always accurate.
  */
@@ -71,7 +111,6 @@ export async function listLeads(tx: Tx, filters: LeadFilters): Promise<Paginated
     Math.max(1, Math.trunc(filters.pageSize ?? DEFAULT_PAGE_SIZE)),
   );
   const offset = (page - 1) * pageSize;
-  const search = (filters.search ?? '').trim();
 
   const rows = await tx<
     {
@@ -101,33 +140,7 @@ export async function listLeads(tx: Tx, filters: LeadFilters): Promise<Paginated
       FROM organizations o
       LEFT JOIN organization_assignments a
         ON a.organization_id = o.id AND a.unassigned_at IS NULL
-      WHERE o.is_archived = false
-        AND (${search || null}::text IS NULL OR (
-              o.name_normalized LIKE '%' || app.normalize_name(${search || null}) || '%'
-              OR EXISTS (
-                SELECT 1 FROM contacts c
-                WHERE c.organization_id = o.id AND c.is_archived = false
-                  AND (c.email_normalized LIKE '%' || lower(${search || null}) || '%'
-                       OR app.normalize_name(c.full_name) LIKE '%' || app.normalize_name(${search || null}) || '%')
-              )))
-        AND (${filters.territoryId ?? null}::uuid IS NULL OR o.territory_id = ${filters.territoryId ?? null})
-        AND (${filters.state ?? null}::text IS NULL OR o.state = ${filters.state ?? null})
-        AND (${filters.city ?? null}::text IS NULL OR o.city_normalized = app.normalize_name(${filters.city ?? null}))
-        AND (${filters.sport ?? null}::text IS NULL OR o.sport = ${filters.sport ?? null})
-        AND (${filters.source ?? null}::text IS NULL OR o.source = ${filters.source ?? null})
-        AND (${filters.status ?? null}::text IS NULL OR o.status::text = ${filters.status ?? null})
-        AND (${filters.assigneeId ?? null}::uuid IS NULL OR a.intern_user_id = ${filters.assigneeId ?? null})
-        AND (${filters.assignment ?? null}::text IS NULL
-             OR (${filters.assignment ?? null} = 'assigned' AND a.id IS NOT NULL)
-             OR (${filters.assignment ?? null} = 'unassigned' AND a.id IS NULL))
-        AND (${filters.contactability ?? null}::text IS NULL OR (
-              CASE ${filters.contactability ?? null}
-                WHEN 'email'  THEN EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = o.id AND c.email_valid AND c.is_archived = false)
-                WHEN 'phone'  THEN EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = o.id AND c.phone_valid AND c.is_archived = false)
-                WHEN 'either' THEN EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = o.id AND (c.email_valid OR c.phone_valid) AND c.is_archived = false)
-                WHEN 'none'   THEN NOT EXISTS (SELECT 1 FROM contacts c WHERE c.organization_id = o.id AND (c.email_valid OR c.phone_valid) AND c.is_archived = false)
-                ELSE true
-              END))
+      WHERE ${leadPredicate(tx, filters)}
     ),
     counted AS (SELECT count(*)::text AS total FROM filtered)
     SELECT o.id, o.name, o.city, o.state, o.sport, o.source, o.status::text,
@@ -200,6 +213,43 @@ export async function listLeads(tx: Tx, filters: LeadFilters): Promise<Paginated
 }
 
 /** Distinct filter values, so the UI only offers options that exist. */
+/**
+ * The first `limit` unallocated clubs matching these filters, in the order an
+ * admin sees them (by name), so "allocate 20" always takes the same 20 the
+ * table shows first.
+ *
+ * `assignment` is forced: this only ever returns clubs nobody owns, which is
+ * what makes a partial allocation safe to repeat — the rest stay in the
+ * unallocated queue for next time.
+ */
+export async function listUnallocatedLeadIds(
+  tx: Tx,
+  filters: LeadFilters,
+  limit: number,
+): Promise<{ id: string; name: string }[]> {
+  const capped = Math.min(2000, Math.max(1, Math.trunc(limit)));
+  const rows = await tx<{ id: string; name: string }[]>`
+    SELECT o.id, o.name
+    FROM organizations o
+    LEFT JOIN organization_assignments a
+      ON a.organization_id = o.id AND a.unassigned_at IS NULL
+    WHERE ${leadPredicate(tx, { ...filters, assignment: 'unassigned' })}
+    ORDER BY o.name ASC, o.id ASC
+    LIMIT ${capped}`;
+  return rows;
+}
+
+/** How many unallocated clubs match these filters in total. */
+export async function countUnallocatedLeads(tx: Tx, filters: LeadFilters): Promise<number> {
+  const [row] = await tx<{ c: string }[]>`
+    SELECT count(*)::text AS c
+    FROM organizations o
+    LEFT JOIN organization_assignments a
+      ON a.organization_id = o.id AND a.unassigned_at IS NULL
+    WHERE ${leadPredicate(tx, { ...filters, assignment: 'unassigned' })}`;
+  return Number(row?.c ?? 0);
+}
+
 export async function leadFilterOptions(tx: Tx): Promise<{
   states: string[];
   sports: string[];

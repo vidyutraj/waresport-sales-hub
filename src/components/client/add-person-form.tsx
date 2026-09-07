@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { addPersonAction } from '@/app/admin/actions';
 import { ActionForm, SubmitButton } from '@/components/client/form';
 import { Field, Input, Select } from '@/components/ui';
@@ -13,6 +14,8 @@ export function AddPersonForm({
   cohorts: { id: string; name: string }[];
   territories: { id: string; label: string }[];
 }) {
+  const [role, setRole] = useState('intern');
+
   return (
     <ActionForm action={addPersonAction}>
       {(state) => {
@@ -47,11 +50,35 @@ export function AddPersonForm({
             </Field>
 
             <Field label="Role" htmlFor="person-role" required error={state.fieldErrors.role}>
-              <Select id="person-role" name="role" defaultValue={kept.role ?? 'intern'}>
+              <Select
+                id="person-role"
+                name="role"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              >
                 <option value="intern">Intern</option>
                 {canAddAdmin ? <option value="admin">Admin</option> : null}
               </Select>
             </Field>
+
+            {role === 'admin' ? (
+              <Field
+                label="Admin password"
+                htmlFor="person-password"
+                required
+                hint="At least 10 characters. Admins must enter this to sign in; interns never see a password."
+                error={state.fieldErrors.password}
+              >
+                <Input
+                  id="person-password"
+                  name="password"
+                  type="password"
+                  required
+                  minLength={10}
+                  autoComplete="new-password"
+                />
+              </Field>
+            ) : null}
 
             <Field
               label="Cohort"
@@ -97,8 +124,8 @@ export function AddPersonForm({
               <SubmitButton pendingLabel="Creating…">Create profile</SubmitButton>
             </div>
             <p className="text-[12px] text-ink-500">
-              The profile appears on the sign-in screen straight away. There is no password: people
-              sign in by picking their own name.
+              The profile appears on the sign-in screen straight away. Interns sign in by picking
+              their own name; an admin must also enter their password.
             </p>
           </>
         );

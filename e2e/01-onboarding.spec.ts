@@ -5,6 +5,7 @@ import {
   INTERN_B,
   isoDate,
   OWNER_EMAIL,
+  OWNER_PASSWORD,
   signIn,
   signOut,
 } from './helpers';
@@ -17,19 +18,55 @@ import {
 
 test.describe.configure({ mode: 'serial' });
 
-test('the owner signs in by picking their name', async ({ page }) => {
+test('the owner picks their name and then has to pass a password', async ({ page }) => {
   await page.goto('/sign-in');
   await expect(page.getByRole('heading', { name: /who are you/i })).toBeVisible();
 
   await page.getByRole('button', { name: new RegExp(OWNER_EMAIL, 'i') }).click();
+
+  // Picking the name is not enough for an admin account.
+  await expect(page).toHaveURL(/\/sign-in\?user=/);
+  await expect(page.getByText(/admin access needs a password/i)).toBeVisible();
+
+  await page.getByLabel(/password/i).fill(OWNER_PASSWORD);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+
   await expect(page).toHaveURL(/\/admin/);
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
-  await expect(page.getByText('owner', { exact: false }).first()).toBeVisible();
+});
+
+test('a wrong admin password gets nowhere', async ({ page }) => {
+  await page.goto('/sign-in');
+  await page.getByRole('button', { name: new RegExp(OWNER_EMAIL, 'i') }).click();
+  await page.getByLabel(/password/i).fill('not-the-password');
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+
+  await expect(page.getByText(/that password is not correct/i)).toBeVisible();
+  await expect(page).toHaveURL(/\/sign-in/);
+
+  // And the session really was not created.
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/sign-in/);
 });
 
 test('an account that does not exist cannot be picked', async ({ page }) => {
   await page.goto('/sign-in');
   await expect(page.getByRole('button', { name: /stranger@example\.test/i })).toHaveCount(0);
+});
+
+test('picking an admin card alone issues no session', async ({ page }) => {
+  // The picker marks admin accounts, so their ids are not secret. Skipping the
+  // password step has to be impossible on the server, not just in the UI.
+  await page.goto('/sign-in');
+  const adminCard = page.getByRole('button', { name: new RegExp(OWNER_EMAIL, 'i') });
+  await expect(adminCard).toBeVisible();
+
+  await adminCard.click();
+  await expect(page).toHaveURL(/\/sign-in\?user=/);
+
+  // No session cookie was issued by picking alone.
+  const cookies = await page.context().cookies();
+  expect(cookies.some((c) => c.name === 'waresport_session')).toBe(false);
 });
 
 test('owner creates a cohort with the program-guide defaults', async ({ page }) => {

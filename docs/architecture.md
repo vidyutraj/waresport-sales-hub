@@ -7,7 +7,7 @@
 | Framework | Next.js 16 (App Router), React 19, TypeScript 5.9 | Server components keep authorization and data access on the server; server actions give progressively-enhanced forms without a separate API surface. |
 | Database | PostgreSQL 17 | Row level security, partial unique indexes and transactions do the correctness work that application code would otherwise get wrong. |
 | Data access | `postgres` (postgres.js), hand-written SQL | The correctness rules here are transactional and index-shaped; an ORM would obscure them. |
-| Auth | Pick-your-profile sign-in, DB-backed sessions | Internal tool on a trusted network. See "Deviation from the suggested stack" below. |
+| Auth | Pick-your-profile sign-in for interns, scrypt password for admins, DB-backed sessions | Internal tool on a trusted network. See "Deviation from the suggested stack" below. |
 | Validation | Zod 4 | One schema per action, server-side. Client validation is UX only. |
 | Styling | Tailwind CSS 4 with `@theme` tokens | Brand values are declared once in `src/app/globals.css`. |
 | Tests | Vitest 4 (unit + integration), Playwright 1.63 (E2E) | Integration tests run against real PostgreSQL with RLS on; E2E drives a production build. |
@@ -23,14 +23,24 @@ reasons:
    build machine had 14 GiB free (99% full). Postgres alone is ~80 MB.
 2. **Scope.** This is an internal workspace for one small team on a trusted
    network. Accounts are created from the backend (`npm run user:create`, or
-   *Interns → Add someone*) and people sign in by choosing their name; there is
-   no password, no email code and no self-signup.
+   *Interns → Add someone*) and interns sign in by choosing their name; there is
+   no email code and no self-signup.
 
-**This is identification, not authentication.** Anyone who can reach the app can
-sign in as anyone listed, so the app must not be exposed publicly. What it is
-*not* is an authorization hole: the role comes from the stored user row, never
-from the request, deactivation revokes live sessions on the next request, and
-every business query still runs under row level security.
+**Intern sign-in is identification, not authentication.** Anyone who can reach
+the app can sign in as any listed intern, so the app must not be exposed
+publicly. What it is *not* is an authorization hole: the role comes from the
+stored user row, never from the request, deactivation revokes live sessions on
+the next request, and every business query still runs under row level security.
+
+**Admin and owner accounts are password-gated.** Picking the name only reaches a
+password step, decided by the server from the stored row — posting straight at
+the sign-in action with an admin's id gets the same prompt. Passwords are salted
+scrypt (`src/lib/auth/password.ts`), ten wrong attempts lock the account for
+fifteen minutes, and `app.guard_password_fields()` rejects any password write
+that arrives on the request-scoped connection, so a password can only be set
+from the backend. An admin or owner row with no hash cannot be signed into at
+all, which is the property that keeps the admin portal shut: there is no state
+in which an intern can reach it by picking a card.
 
 Row level security is used exactly as it would be with Supabase. All business
 queries run through a `waresport_app` role that owns no tables and has
@@ -56,9 +66,10 @@ appSql()     → APP_DATABASE_URL  (waresport_app; NOBYPASSRLS, owns nothing)
 **`asSystem()` is used only where no session identity exists yet**, and the list
 is short and closed:
 
-- `scripts/migrate.ts`, `scripts/seed.ts`, `scripts/create-user.ts`
-- `src/lib/auth/service.ts` — listing the sign-in choices, starting and loading
-  sessions, creating accounts
+- `scripts/migrate.ts`, `scripts/seed.ts`, `scripts/create-user.ts`,
+  `scripts/set-password.ts`
+- `src/lib/auth/service.ts` — listing the sign-in choices, verifying admin
+  passwords, starting and loading sessions, creating accounts
 - test fixtures (`tests/integration/factories.ts`)
 
 **Everything else runs through `asUser(userId, fn)`**, which opens a transaction
@@ -96,7 +107,9 @@ Tables, grouped by migration. Foreign keys, indexes and constraints are in
 - **`users`** — one row per person: email (citext, unique), `role`
   (`owner|admin|intern`), `status` (`invited|active|deactivated`), profile
   fields, `row_version` for optimistic locking. Rows are created only from the
-  backend; `/sign-in` lists every non-deactivated one.
+  backend; `/sign-in` lists every non-deactivated one. `password_hash` and its
+  lockout columns (added in `0012_admin_password.sql`) gate admin and owner
+  sign-in and are writable only on the system connection.
 - **`sessions`** — opaque tokens stored only as a keyed SHA-256 digest.
 - `auth_codes`, `invitations` and `rate_limits` existed for the original
   one-time-code sign-in and were dropped in `0011_drop_email_auth.sql`.

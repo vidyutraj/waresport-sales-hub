@@ -17,6 +17,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "user:create": "tsx scripts/create-user.ts",
+    "user:set-password": "tsx scripts/set-password.ts",
     "import:csv": "tsx scripts/import-csv.ts",
     "test": "vitest run --project unit",
     "test:unit": "vitest run --project unit",

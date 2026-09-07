@@ -154,6 +154,36 @@ test('rejected rows can be downloaded', async ({ page }) => {
   expect(download.suggestedFilename()).toMatch(/waresport-import-rejects.*\.csv/);
 });
 
+test('admin allocates only part of the unallocated queue', async ({ page }) => {
+  await signIn(page, OWNER_EMAIL);
+  await page.goto('/admin/leads?assignment=unassigned');
+
+  // The unallocated tab is where the queue lives.
+  await expect(page.getByRole('heading', { name: /allocate a batch/i })).toBeVisible();
+  const before = Number(
+    (await page.getByRole('tab', { name: /unallocated/i }).innerText()).replace(/[^0-9]/g, ''),
+  );
+  test.skip(before < 2, 'Needs at least two unallocated clubs.');
+
+  await page.locator('#allocate-count').fill('1');
+  await page.locator('#allocate-intern').selectOption({ label: 'Erin (EAST)' });
+  await page.locator('#allocate-reason').fill('First batch for week 1');
+  await page.locator('#allocate-override').fill('Acceptance run');
+
+  // The form says exactly what will happen before it happens.
+  await expect(page.getByText(/stay unallocated for later/i)).toBeVisible();
+  await page.getByRole('button', { name: /^allocate 1 to /i }).click();
+
+  await expect(page.getByText(/allocated 1 club/i)).toBeVisible();
+  await expect(page.getByText(/still unallocated/i)).toBeVisible();
+
+  // The rest stayed in the queue rather than being handed out.
+  const after = Number(
+    (await page.getByRole('tab', { name: /unallocated/i }).innerText()).replace(/[^0-9]/g, ''),
+  );
+  expect(after).toBe(before - 1);
+});
+
 test('admin filters and assigns clubs to an intern', async ({ page }) => {
   await signIn(page, OWNER_EMAIL);
   await page.goto('/admin/leads?state=NC');

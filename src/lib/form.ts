@@ -118,6 +118,7 @@ export function toFormState(
       'ProspectError',
       'AdminError',
       'UserCreationError',
+      'WeakPasswordError',
       'ImportError',
     ].includes(error.name);
     if (isKnownDomainError) return fail(error.message);
