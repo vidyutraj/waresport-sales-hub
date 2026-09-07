@@ -10,7 +10,9 @@ Two supported shapes:
   user and exposes `/api/health`.
 - **Vercel** — no configuration needed; point it at the repo. Bring your own
   Postgres (Neon, Supabase, RDS). Uploaded resource files need a volume, which
-  Vercel does not provide — see *Storage* below.
+  Vercel does not provide — see *Storage* below. Vercel specifics are in
+  *Serverless and pooled connections* and *Migrations without a release hook*
+  below.
 
 ---
 
@@ -89,6 +91,33 @@ curl -s  https://your-host/api/health          # {"status":"ok"}
 `/api/health` reports only up/degraded — no version, no configuration.
 
 ---
+
+## Serverless and pooled connections
+
+On a serverless platform each warm instance holds its own connection pool, so
+point both `DATABASE_URL` and `APP_DATABASE_URL` at the provider's **pooled**
+endpoint (Neon's is the host containing `-pooler`). `src/lib/db.ts` detects a
+pooled URL and disables prepared statements — a transaction pooler gives each
+statement whichever backend is free, so a statement prepared on one connection
+is missing on the next — and caps the pool size when it detects serverless.
+
+Run DDL against the **direct** endpoint instead (the same host without
+`-pooler`). Schema changes do not belong on a pooler.
+
+## Migrations without a release hook
+
+Fly and Render run `npm run db:migrate` as a release step. Vercel has no
+equivalent, and a build is the wrong place for it: builds run on every deploy,
+sometimes in parallel. Apply migrations from a workstation with access to the
+database, before promoting the deployment:
+
+```bash
+DATABASE_URL="<direct endpoint>" npm run db:migrate
+```
+
+The runner is idempotent and refuses to re-run a migration whose contents
+changed, so running it twice is safe and running it against an already-current
+database prints "Database is up to date."
 
 ## Storage
 

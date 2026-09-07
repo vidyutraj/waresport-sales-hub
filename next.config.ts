@@ -17,8 +17,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   // Self-contained server bundle, so a container image does not ship
-  // node_modules. Ignored by platforms that build their own runtime.
-  output: 'standalone',
+  // node_modules. Vercel builds its own runtime and does not want it, so it is
+  // only set elsewhere.
+  output: process.env.VERCEL ? undefined : 'standalone',
   async headers() {
     const headers = [
       { key: 'X-Content-Type-Options', value: 'nosniff' },
