@@ -18,6 +18,8 @@
     "db:seed": "tsx scripts/seed.ts",
     "user:create": "tsx scripts/create-user.ts",
     "user:set-password": "tsx scripts/set-password.ts",
+    "user:role": "tsx scripts/set-role.ts",
+    "user:deactivate": "tsx scripts/deactivate-user.ts",
     "import:csv": "tsx scripts/import-csv.ts",
     "test": "vitest run --project unit",
     "test:unit": "vitest run --project unit",

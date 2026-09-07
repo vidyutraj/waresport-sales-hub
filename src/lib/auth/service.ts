@@ -430,6 +430,126 @@ export async function setUserPassword(input: {
 }
 
 // ---------------------------------------------------------------------------
+// Changing an account from the backend
+// ---------------------------------------------------------------------------
+
+/** Look one account up by id or email, on the system connection. */
+async function findAccount(
+  emailOrId: string,
+): Promise<{ id: string; email: string; role: AppRole; status: UserStatus; hasPassword: boolean }> {
+  const identifier = emailOrId.trim();
+  const email = normalizeEmail(identifier);
+  const row = await asSystem(async (tx) => {
+    const [found] = await tx<
+      {
+        id: string;
+        email: string;
+        role: AppRole;
+        status: UserStatus;
+        has_password: boolean;
+      }[]
+    >`
+      SELECT id, email::text AS email, role, status, (password_hash IS NOT NULL) AS has_password
+      FROM users
+      WHERE id::text = ${identifier} OR email = ${email || identifier}
+      LIMIT 1`;
+    return found;
+  });
+  if (row === undefined) {
+    throw new UserCreationError(`No account matches "${identifier}".`, 'not_found');
+  }
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    status: row.status,
+    hasPassword: row.has_password,
+  };
+}
+
+/**
+ * Change an account's role.
+ *
+ * Promoting to admin or owner without a password would create an account that
+ * cannot sign in, so that is refused here rather than discovered later at the
+ * sign-in screen.
+ */
+export async function setAccountRole(input: {
+  emailOrId: string;
+  role: AppRole;
+}): Promise<{ userId: string; email: string; previousRole: AppRole }> {
+  const account = await findAccount(input.emailOrId);
+  if (account.role === input.role) {
+    return { userId: account.id, email: account.email, previousRole: account.role };
+  }
+  if (roleNeedsPassword(input.role) && !account.hasPassword) {
+    throw new UserCreationError(
+      `${account.email} has no password, and an ${input.role} needs one. Run npm run user:set-password first.`,
+      'password_required',
+    );
+  }
+
+  await asSystem(async (tx) => {
+    await tx`UPDATE users SET role = ${input.role}::app_role WHERE id = ${account.id}`;
+    await tx`
+      INSERT INTO audit_events (actor_user_id, actor_role, action, entity_type, entity_id,
+                                before_data, after_data, reason)
+      VALUES (${account.id}, ${input.role}::app_role, 'user.role_changed', 'user', ${account.id}::text,
+              jsonb_build_object('role', ${account.role}::text),
+              jsonb_build_object('role', ${input.role}::text),
+              'Changed from the backend')`;
+  });
+
+  return { userId: account.id, email: account.email, previousRole: account.role };
+}
+
+/**
+ * Deactivate or reactivate an account.
+ *
+ * Deactivating drops it off the sign-in screen and kills its live sessions on
+ * the next request. Nothing it produced is deleted: imports, activity and
+ * meetings stay attributed to it, which is why this is the right way to retire
+ * an account rather than removing the row.
+ *
+ * The database refuses to deactivate the last active owner; that surfaces here
+ * as a plain message.
+ */
+export async function setAccountActive(input: {
+  emailOrId: string;
+  active: boolean;
+}): Promise<{ userId: string; email: string; role: AppRole }> {
+  const account = await findAccount(input.emailOrId);
+  const status: UserStatus = input.active ? 'active' : 'deactivated';
+
+  try {
+    await asSystem(async (tx) => {
+      await tx`UPDATE users SET status = ${status}::user_status WHERE id = ${account.id}`;
+      await tx`
+        INSERT INTO audit_events (actor_user_id, actor_role, action, entity_type, entity_id,
+                                  before_data, after_data, reason)
+        VALUES (${account.id}, ${account.role}::app_role,
+                ${input.active ? 'user.reactivated' : 'user.deactivated'},
+                'user', ${account.id}::text,
+                jsonb_build_object('status', ${account.status}::text),
+                jsonb_build_object('status', ${status}::text),
+                'Changed from the backend')`;
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('last active owner')) {
+      throw new UserCreationError(
+        'That is the only active owner. Promote another account to owner first: npm run user:role -- --email <address> --role owner',
+        'invalid_input',
+      );
+    }
+    throw error;
+  }
+
+  if (!input.active) await revokeAllSessionsForUser(account.id);
+  return { userId: account.id, email: account.email, role: account.role };
+}
+
+// ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
 

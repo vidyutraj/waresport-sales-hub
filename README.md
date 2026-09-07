@@ -102,13 +102,22 @@ npm run user:create -- --email jordan@waresport.com --name "Jordan Lee" \
   --role intern --cohort "Spring 2026" --territory EAST
 ```
 
+The rest of account management is backend-only too:
+
+| Command | What it does |
+| --- | --- |
+| `npm run user:create` | Create a profile. Prints a generated password for an admin or owner. |
+| `npm run user:set-password` | Set or replace a password, and sign that account out everywhere. |
+| `npm run user:role -- --email <a> --role owner\|admin\|intern` | Change a role. The workspace always keeps one active owner, and an admin or owner must have a password first. |
+| `npm run user:deactivate -- --email <a> [--reactivate]` | Retire an account: off the sign-in screen, signed out, history kept. Accounts are never deleted — their imports and activity stay attributed to them. |
+
 To start over: `npm run db:reset` (drops the volume, re-migrates, re-seeds).
 
 ---
 
 ## Admin quick start
 
-1. **Sign in as the owner.** Pick your name on the sign-in screen.
+1. **Sign in as the owner.** Pick your name, then enter your password.
 2. **Create a cohort** — *Targets & Program*. Give it a name, a start date and a
    reporting timezone. It is seeded with the program guide's targets: 75/50 in
    week 1, then 150/100.
