@@ -216,57 +216,50 @@ npm run import:csv -- --file private/baseball-club-directors-combined.csv \
 
 ## Production configuration
 
-Set these before deploying. Every one has a dev-only default in `.env.example`
-that **must** be replaced.
+Full instructions, including database provisioning and the release order, are in
+**[DEPLOYMENT.md](DEPLOYMENT.md)**. The threat model and every hardening
+decision are in **[SECURITY.md](SECURITY.md)**.
 
 | Variable | Notes |
 | --- | --- |
-| `DATABASE_URL` | Owning connection. Migrations, sign-in, account creation, CLI. |
-| `APP_DATABASE_URL` | Request-scoped connection as `waresport_app`. Must be a role with `NOBYPASSRLS` that owns no tables — this is what makes RLS real. |
-| `AUTH_SECRET` | `openssl rand -base64 48`. Rotating it invalidates all sessions and codes. |
-| `APP_URL` | Must be the real `https://` origin. Session cookies are marked `Secure` when it is, and it is used for the sign-out origin check. |
-| `SMTP_*`, `MAIL_FROM` | A real provider. **This is the one external dependency that cannot be verified locally** — see below. |
+| `DATABASE_URL` | Owning connection. Migrations, sign-in, account creation, CLI. Needs `?sslmode=require` unless the host is private. |
+| `APP_DATABASE_URL` | Request-scoped connection as `waresport_app`. Must be a role with `NOBYPASSRLS` that owns no tables — this is what makes RLS real. Must not equal `DATABASE_URL`. |
+| `AUTH_SECRET` | `openssl rand -base64 48`. Keys the session-token digest; rotating it signs everyone out. Admin passwords are scrypt-hashed and do not depend on it. |
+| `APP_URL` | The real `https://` origin. Session cookies are `Secure` and `__Host-` prefixed when it is, and it backs the sign-out origin check. |
 | `SESSION_TTL_HOURS` | How long a session cookie stays valid. |
-| `AUTH_SECRET` | Keys the session-token digest. Admin passwords are scrypt-hashed and do not depend on it. |
-| `AUTH_REQUEST_LIMIT_*`, `AUTH_VERIFY_LIMIT_*`, `AUTH_RATE_WINDOW_SECONDS` | Rate limits. Defaults are strict; raise only with a reason. |
 | `IMPORT_MAX_FILE_BYTES`, `IMPORT_MAX_ROWS` | Import guardrails. |
-| `STORAGE_DIR` | Private resource attachments. Must be writable and **must not** be web-served; files are streamed through an authorization-checked route. |
+| `STORAGE_DIR` | Private resource attachments. Must be writable, must survive deploys (a volume), and **must not** be web-served; files are streamed through an authorization-checked route. |
 
-### Creating the application role
+There is no mail configuration, and no third-party service of any kind: the app
+sends no email.
 
-`db/migrations/0007_rls.sql` creates `waresport_app` with a development
-password. For a real deployment, set a real one before migrating:
+`src/lib/env.ts` refuses to boot a real deployment that still carries the
+example secret, serves over plain HTTP, reaches a hosted database without TLS,
+or runs business queries on the owning connection. Loopback is exempt so local
+production builds and the acceptance suite still run.
 
-```sql
-ALTER ROLE waresport_app WITH PASSWORD 'a-strong-password';
-```
-
-then put that password in `APP_DATABASE_URL`.
-
-### Deploying
+### Release order
 
 ```bash
 npm ci
-npm run db:migrate     # against the production DATABASE_URL
-npm run db:seed        # safe: no accounts, no leads, idempotent
-npm run build
-npm start
-npm run user:create -- --email you@waresport.com --name "Your Name" --role owner
+npm run db:migrate     # a release step, never a boot step
+npm run db:seed        # optional; territories and training topics, no accounts
+npm run build && npm start
+npm run user:create -- --email you@yourcompany.com --name "Your Name" --role owner
 ```
 
-Any Node host works (the app is fully dynamic — no static export). Behind a
-proxy, forward `X-Forwarded-For` so per-address rate limiting sees real clients.
+A `Dockerfile` is included for container platforms (standalone output,
+unprivileged user, `/api/health` probe). Vercel needs no configuration, but has
+no writable disk for `STORAGE_DIR`.
 
-### Verified vs. not verified
+Behind a proxy, forward `X-Forwarded-For` so the audit trail sees real clients.
 
-- **Verified locally:** schema migration from empty, seeding, owner bootstrap,
-  the real sign-in flow, the import of the actual
-  1,231-row file, all dashboards, and every acceptance flow against a production
-  build.
-- **Not verified:** delivery through a real production email provider. No
-  credentials were available, so `SMTP_*` against a real host (and its SPF/DKIM
-  setup) is an outstanding production dependency. Everything else about the auth
-  flow is exercised; only the final hop is untested.
+### Verified
+
+Schema migration from empty, seeding, account creation, the real sign-in flow
+including the admin password step, the import of the actual 1,231-row file, all
+dashboards, and every acceptance flow against a production build with the
+production security headers in place.
 
 ---
 
@@ -297,7 +290,6 @@ proxy, forward `X-Forwarded-For` so per-address rate limiting sees real clients.
 
 ## Known limitations
 
-- **Production email is unverified** (see above).
 - The `needs_review` import bucket is reported and downloadable, but resolving a
   row in place (merge vs. create) is done by correcting the CSV and re-importing
   rather than through a dedicated in-app queue.
@@ -305,8 +297,10 @@ proxy, forward `X-Forwarded-For` so per-address rate limiting sees real clients.
   seconds; a much larger file would want a background job.
 - Charts are tables and progress bars. There is no charting library, so trends
   are read as numbers rather than plotted.
-- `docs/architecture.md` records that swapping to Supabase Auth later means
-  replacing `src/lib/auth/*`; the RLS policies would carry over unchanged.
+- Interns sign in by picking their name, which identifies but does not
+  authenticate them; only admin and owner accounts have passwords. Put the
+  site behind a network boundary, or replace `src/lib/auth/*` with real
+  authentication — the RLS policies carry over unchanged either way.
 - Brand colours and typography were taken from waresport.com's own stylesheet
   (`#E60027`, `#C4001F`, `#111927`, Inter). Only the wordmark is used, not the
   logo image file.

@@ -1,0 +1,18 @@
+# Keep secrets, real data and build output out of the image and its context.
+.env
+.env.*
+!.env.example
+node_modules
+.next
+.git
+.github
+.claude
+private
+storage
+test-results
+playwright-report
+e2e
+tests
+docs
+*.log
+tsconfig.tsbuildinfo

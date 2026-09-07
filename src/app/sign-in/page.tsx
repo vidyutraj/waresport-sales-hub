@@ -73,8 +73,8 @@ export default async function SignInPage({
 
       {choices.length === 0 ? (
         <Alert tone="info" title="No profiles yet">
-          An admin creates profiles from the server with{' '}
-          <code className="font-mono text-[12px]">npm run user:create</code>.
+          Nobody has been set up in this workspace yet. Whoever administers it creates the first
+          profile on the server.
         </Alert>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -93,7 +93,7 @@ export default async function SignInPage({
                     </span>
                     <span className="block truncate text-[12px] text-ink-500">
                       {choice.passwordMissing
-                        ? 'No password set — run npm run user:set-password'
+                        ? 'No password set yet — ask an administrator'
                         : choice.email}
                     </span>
                   </span>

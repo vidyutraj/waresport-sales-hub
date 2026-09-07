@@ -4,7 +4,7 @@ import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { env } from '@/lib/env';
 import { loadSessionUser, revokeSession, type AuthenticatedUser } from './service';
-import { SESSION_COOKIE_NAME } from './tokens';
+import { HOST_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME } from './tokens';
 
 /**
  * Request-scoped session access.
@@ -13,9 +13,22 @@ import { SESSION_COOKIE_NAME } from './tokens';
  * checks authorization in several places still performs one session lookup.
  */
 
+/**
+ * The cookie name in use.
+ *
+ * Over HTTPS this is the `__Host-` prefixed name, which browsers only accept
+ * when the cookie is Secure, path `/` and carries no Domain — so a subdomain,
+ * or anything speaking plain HTTP, cannot overwrite the session cookie. The
+ * prefix is illegal without Secure, so plain HTTP (local development) keeps the
+ * unprefixed name.
+ */
+export function sessionCookieName(): string {
+  return env().APP_URL.startsWith('https://') ? HOST_SESSION_COOKIE_NAME : SESSION_COOKIE_NAME;
+}
+
 export const currentUser = cache(async (): Promise<AuthenticatedUser | null> => {
   const store = await cookies();
-  const token = store.get(SESSION_COOKIE_NAME)?.value;
+  const token = store.get(sessionCookieName())?.value;
   if (!token) return null;
   return loadSessionUser(token);
 });
@@ -23,7 +36,7 @@ export const currentUser = cache(async (): Promise<AuthenticatedUser | null> => 
 export async function setSessionCookie(token: string): Promise<void> {
   const e = env();
   const store = await cookies();
-  store.set(SESSION_COOKIE_NAME, token, {
+  store.set(sessionCookieName(), token, {
     httpOnly: true,
     sameSite: 'lax',
     // Keyed to the actual scheme rather than NODE_ENV: a Secure cookie set over
@@ -38,14 +51,15 @@ export async function setSessionCookie(token: string): Promise<void> {
 
 export async function clearSessionCookie(): Promise<void> {
   const store = await cookies();
-  store.delete(SESSION_COOKIE_NAME);
+  store.delete(sessionCookieName());
 }
 
 export async function signOutCurrentSession(): Promise<void> {
   const store = await cookies();
-  const token = store.get(SESSION_COOKIE_NAME)?.value;
+  const name = sessionCookieName();
+  const token = store.get(name)?.value;
   if (token) await revokeSession(token);
-  store.delete(SESSION_COOKIE_NAME);
+  store.delete(name);
 }
 
 export async function clientIp(): Promise<string | null> {

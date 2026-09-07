@@ -224,9 +224,8 @@ export default async function SettingsPage() {
             <CardHeader title="Access model" />
             <CardBody className="grid gap-2 text-[13px] text-ink-700">
               <p>
-                <strong>Owner</strong> — the only role that can grant or revoke admin. Created
-                server-side via <code className="font-mono text-[12px]">npm run user:create</code>,
-                never by a public signup.
+                <strong>Owner</strong> — the only role that can grant or revoke admin. Created on
+                the server by whoever administers this deployment, never by a public signup.
               </p>
               <p>
                 <strong>Admin</strong> — manages interns, leads, targets, meeting verification and

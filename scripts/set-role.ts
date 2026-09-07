@@ -31,7 +31,14 @@ async function main() {
     throw new Error(`Unknown role "${role}". Use intern, admin or owner.`);
   }
 
-  const result = await setAccountRole({ emailOrId, role });
+  const result = await setAccountRole({ emailOrId, role }).catch((error: unknown) => {
+    if (error instanceof UserCreationError && error.code === 'password_required') {
+      throw new Error(
+        `${error.message} Run: npm run user:set-password -- --email ${emailOrId}`,
+      );
+    }
+    throw error;
+  });
   console.info(
     result.previousRole === role
       ? `${result.email} is already ${role}.`

@@ -26,3 +26,5 @@ export function hashIp(ip: string | null | undefined, secret: string): Buffer | 
 }
 
 export const SESSION_COOKIE_NAME = 'waresport_session';
+/** Used over HTTPS. `__Host-` locks the cookie to this exact origin. */
+export const HOST_SESSION_COOKIE_NAME = '__Host-waresport_session';

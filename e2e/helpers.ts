@@ -99,9 +99,24 @@ export function watchForPageErrors(page: Page) {
   return { consoleErrors, failedRequests };
 }
 
-/** A local wall-clock string for a `datetime-local` input. */
+/**
+ * A local wall-clock string for a `datetime-local` input, kept inside today.
+ *
+ * The suite logs activity "a little while ago" and then asserts it counts
+ * toward this program week. Run just after midnight, a naive offset lands in
+ * yesterday — and on a Monday, in last week, where the app quite correctly does
+ * not count it. Clamping keeps the fixture honest without weakening what the
+ * test checks.
+ */
 export function localDateTime(offsetMinutes = -30): string {
-  const d = new Date(Date.now() + offsetMinutes * 60_000);
+  const now = new Date();
+  const target = new Date(now.getTime() + offsetMinutes * 60_000);
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+
+  const d =
+    target < midnight ? new Date(Math.max(midnight.getTime(), now.getTime() - 60_000)) : target;
+
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }

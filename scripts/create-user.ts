@@ -105,7 +105,9 @@ async function main() {
 
 main()
   .catch((error: unknown) => {
-    if (error instanceof UserCreationError) console.error(error.message);
+    if (error instanceof UserCreationError && error.code === 'password_required') {
+      console.error(`${error.message} Pass --password, or let this command generate one.`);
+    } else if (error instanceof UserCreationError) console.error(error.message);
     else console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
   })

@@ -105,7 +105,7 @@ export async function createUserAccount(
   const password = input.password?.trim() || null;
   if (password === null && roleNeedsPassword(input.role)) {
     throw new UserCreationError(
-      `An ${input.role} account needs a password. Pass --password, or set one later with npm run user:set-password.`,
+      `An ${input.role} account needs a password before it can be used.`,
       'password_required',
     );
   }
@@ -216,7 +216,7 @@ export type SignInChoice = {
   requiresPassword: boolean;
   /**
    * Requires a password but has none set, so it cannot be signed into until an
-   * admin runs `npm run user:set-password`.
+   * administrator sets one (`npm run user:set-password`).
    */
   passwordMissing: boolean;
 };
@@ -484,7 +484,7 @@ export async function setAccountRole(input: {
   }
   if (roleNeedsPassword(input.role) && !account.hasPassword) {
     throw new UserCreationError(
-      `${account.email} has no password, and an ${input.role} needs one. Run npm run user:set-password first.`,
+      `${account.email} has no password, and an ${input.role} needs one. Set a password first.`,
       'password_required',
     );
   }
@@ -538,7 +538,7 @@ export async function setAccountActive(input: {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('last active owner')) {
       throw new UserCreationError(
-        'That is the only active owner. Promote another account to owner first: npm run user:role -- --email <address> --role owner',
+        'That is the only active owner. Promote another account to owner first.',
         'invalid_input',
       );
     }

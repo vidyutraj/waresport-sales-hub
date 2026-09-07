@@ -18,7 +18,7 @@ const MESSAGES = {
   not_found: 'That account no longer exists. Pick another one.',
   deactivated: 'That account has been deactivated. Ask an admin to reactivate it.',
   password_not_set:
-    'That account has no password yet, so it cannot be signed into. Set one on the server with npm run user:set-password.',
+    'That account has no password yet, so it cannot be signed into. Ask an administrator to set one.',
   password_required: 'Enter the password for that account.',
   wrong_password: 'That password is not correct.',
   locked: 'Too many wrong passwords. Try again in a few minutes.',

@@ -28,7 +28,14 @@ async function main() {
   if (emailOrId === undefined) throw new Error(USAGE);
   const active = process.argv.includes('--reactivate');
 
-  const result = await setAccountActive({ emailOrId, active });
+  const result = await setAccountActive({ emailOrId, active }).catch((error: unknown) => {
+    if (error instanceof UserCreationError && error.message.includes('only active owner')) {
+      throw new Error(
+        `${error.message} Run: npm run user:role -- --email <address> --role owner`,
+      );
+    }
+    throw error;
+  });
   console.info(
     active
       ? `${result.email} is active again and back on the sign-in screen.`
