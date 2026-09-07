@@ -33,9 +33,7 @@ async function main() {
 
   const result = await setAccountRole({ emailOrId, role }).catch((error: unknown) => {
     if (error instanceof UserCreationError && error.code === 'password_required') {
-      throw new Error(
-        `${error.message} Run: npm run user:set-password -- --email ${emailOrId}`,
-      );
+      throw new Error(`${error.message} Run: npm run user:set-password -- --email ${emailOrId}`);
     }
     throw error;
   });

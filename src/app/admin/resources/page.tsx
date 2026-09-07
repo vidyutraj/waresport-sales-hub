@@ -21,7 +21,7 @@ import { ResourceForm } from '@/components/client/resource-form';
 import { ProjectForm } from '@/components/client/project-form';
 import { SubmissionReviewForm } from '@/components/client/submission-review-form';
 import { ActionButton } from '@/components/client/form';
-import { archiveResourceAction } from './actions';
+import { archiveResourceAction, cancelProjectAction, restoreResourceAction } from './actions';
 
 export const metadata = { title: 'Resources & projects' };
 export const dynamic = 'force-dynamic';
@@ -44,6 +44,9 @@ export default async function ResourcesPage() {
     >`
       SELECT id, title, category::text, audience::text, summary, link_url, file_name, is_starter_example
       FROM resources WHERE is_archived = false ORDER BY category, sort_order, title`,
+    archivedResources: await tx<{ id: string; title: string; category: string }[]>`
+      SELECT id, title, category::text
+      FROM resources WHERE is_archived = true ORDER BY title`,
     cohorts: await listCohorts(tx),
     interns: (await listPeople(tx, { role: 'intern' })).filter((p) => p.status === 'active'),
     projects: await tx<
@@ -211,6 +214,7 @@ export default async function ResourcesPage() {
                     <Th>Due</Th>
                     <Th numeric>Assigned</Th>
                     <Th numeric>Ready for review</Th>
+                    <Th>Actions</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -233,12 +237,58 @@ export default async function ResourcesPage() {
                           0
                         )}
                       </Td>
+                      <Td>
+                        <ActionButton
+                          action={cancelProjectAction}
+                          fields={{ projectId: p.id }}
+                          variant="danger"
+                          confirm="Cancel this project? Submissions already made are kept."
+                          pendingLabel="Cancelling…"
+                        >
+                          Cancel
+                        </ActionButton>
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
               </TableScroll>
             )}
           </Card>
+
+          {data.archivedResources.length > 0 ? (
+            <Card>
+              <CardHeader
+                title={`Archived resources (${data.archivedResources.length})`}
+                description="Hidden from interns. Restore one if you archived it by mistake."
+              />
+              <TableScroll>
+                <thead>
+                  <tr>
+                    <Th>Title</Th>
+                    <Th>Category</Th>
+                    <Th>Actions</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.archivedResources.map((r) => (
+                    <tr key={r.id}>
+                      <Td>{r.title}</Td>
+                      <Td className="whitespace-nowrap">{r.category.replace(/_/g, ' ')}</Td>
+                      <Td>
+                        <ActionButton
+                          action={restoreResourceAction}
+                          fields={{ resourceId: r.id }}
+                          pendingLabel="Restoring…"
+                        >
+                          Restore
+                        </ActionButton>
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </TableScroll>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader title="Submissions" description="Newest first." />

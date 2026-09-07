@@ -30,9 +30,7 @@ async function main() {
 
   const result = await setAccountActive({ emailOrId, active }).catch((error: unknown) => {
     if (error instanceof UserCreationError && error.message.includes('only active owner')) {
-      throw new Error(
-        `${error.message} Run: npm run user:role -- --email <address> --role owner`,
-      );
+      throw new Error(`${error.message} Run: npm run user:role -- --email <address> --role owner`);
     }
     throw error;
   });

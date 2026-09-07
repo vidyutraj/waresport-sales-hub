@@ -172,6 +172,69 @@ export async function archiveResourceAction(
   return ok('Resource archived. It is hidden from interns but kept for the record.');
 }
 
+/**
+ * Bring an archived resource back.
+ *
+ * Possible since migration 0013: before it, an admin could not even see an
+ * archived row, because the only SELECT policy filtered them out.
+ */
+export async function restoreResourceAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const actor = await assertAdmin();
+  const resourceId = String(formData.get('resourceId') ?? '');
+  try {
+    await asUser(actor.id, async (tx) => {
+      await tx`UPDATE resources SET is_archived = false WHERE id = ${resourceId}`;
+      await recordAudit(tx, {
+        actorUserId: actor.id,
+        actorRole: actor.role as 'owner' | 'admin',
+        action: 'resource.restored',
+        entityType: 'resource',
+        entityId: resourceId,
+      });
+    });
+  } catch (error) {
+    return toFormState(error, 'Could not restore that resource.');
+  }
+  revalidatePath('/admin/resources');
+  revalidatePath('/training');
+  return ok('Resource restored. Interns can see it again.');
+}
+
+/**
+ * Cancel a project.
+ *
+ * Cancelled rather than deleted: interns may already have submitted work
+ * against it, and that history stays attached to the project. It drops off the
+ * admin list and out of every intern's assignments.
+ */
+export async function cancelProjectAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const actor = await assertAdmin();
+  const projectId = String(formData.get('projectId') ?? '');
+  try {
+    await asUser(actor.id, async (tx) => {
+      await tx`UPDATE projects SET status = 'cancelled' WHERE id = ${projectId}`;
+      await recordAudit(tx, {
+        actorUserId: actor.id,
+        actorRole: actor.role as 'owner' | 'admin',
+        action: 'project.cancelled',
+        entityType: 'project',
+        entityId: projectId,
+      });
+    });
+  } catch (error) {
+    return toFormState(error, 'Could not cancel that project.');
+  }
+  revalidatePath('/admin/resources');
+  revalidatePath('/training');
+  return ok('Project cancelled. Submissions already made are kept.');
+}
+
 const projectSchema = z.object({
   projectId: z
     .string()
