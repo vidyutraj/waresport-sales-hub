@@ -100,5 +100,11 @@ describe('deployment configuration guard', () => {
         APP_DATABASE_URL: 'postgres://app:pw@app-db.internal:5432/app',
       }),
     ).not.toThrow();
+    expect(
+      load({
+        DATABASE_URL: 'postgres://owner:pw@app-db.flycast:5432/app',
+        APP_DATABASE_URL: 'postgres://app:pw@app-db.flycast:5432/app?sslmode=disable',
+      }),
+    ).not.toThrow();
   });
 });

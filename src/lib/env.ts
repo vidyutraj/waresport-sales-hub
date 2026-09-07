@@ -33,7 +33,14 @@ const schema = z.object({
  */
 const DEV_PLACEHOLDER_SECRET = 'dev-only-insecure-secret-change-me-0123456789abcdef';
 
-/** Loopback, or a provider's private network (Fly, Railway, Render internal). */
+/**
+ * Loopback, or a provider's private network.
+ *
+ * `.internal` and `.flycast` are Fly's private DNS (the latter is its private
+ * load balancer); Railway and Render use `.internal` too. Traffic to these
+ * never leaves the provider's private network, so requiring TLS on top of it
+ * would be theatre — and would block a perfectly good deployment.
+ */
 function isPrivateHost(url: string): boolean {
   try {
     const host = new URL(url).hostname;
@@ -42,6 +49,7 @@ function isPrivateHost(url: string): boolean {
       host === '127.0.0.1' ||
       host === '::1' ||
       host.endsWith('.internal') ||
+      host.endsWith('.flycast') ||
       host.endsWith('.local')
     );
   } catch {
