@@ -127,6 +127,18 @@ test('a new profile appears on the sign-in screen', async ({ page }) => {
   await expect(page.getByRole('button', { name: new RegExp(INTERN_B, 'i') })).toBeVisible();
 });
 
+test('onboarding has a way back to the picker', async ({ page }) => {
+  // Picking the wrong profile must not be a dead end: / sends an un-onboarded
+  // account to onboarding and /sign-in sends anyone with a session back to /,
+  // so onboarding has to carry its own sign-out.
+  await signIn(page, INTERN_A);
+  await expect(page).toHaveURL(/\/onboarding/);
+
+  await page.getByRole('button', { name: /sign out/i }).click();
+  await expect(page).toHaveURL(/\/sign-in/);
+  await expect(page.getByRole('heading', { name: /who are you/i })).toBeVisible();
+});
+
 test('intern A signs in and completes onboarding', async ({ page }) => {
   await signIn(page, INTERN_A);
   await completeOnboarding(page, { fullName: 'Erin East', preferredName: 'Erin' });

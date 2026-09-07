@@ -5,6 +5,7 @@ import { getActiveMembership } from '@/lib/queries/program';
 import { allProgramWeeks } from '@/lib/domain/program';
 import { formatDateRangeHuman } from '@/lib/domain/time';
 import { OnboardingForm } from '@/components/client/onboarding-form';
+import { SignOutButton } from '@/components/client/sign-out-button';
 import { Card, CardBody, CardHeader, WaresportMark } from '@/components/ui';
 
 export const metadata = { title: 'Set up your account' };
@@ -42,8 +43,20 @@ export default async function OnboardingPage() {
 
   return (
     <div className="min-h-dvh">
-      <header className="bg-ink-900 px-5 py-3">
+      {/*
+        Onboarding renders its own header rather than the app shell, so it has to
+        carry its own way out: without this, picking the wrong profile on the
+        sign-in screen is a dead end. / sends an un-onboarded account here and
+        /sign-in sends anyone with a session back to /, so signing out is the
+        only way back to the picker.
+      */}
+      <header className="flex flex-wrap items-center justify-between gap-3 bg-ink-900 px-5 py-3">
         <WaresportMark />
+        <div className="flex items-center gap-2 text-[13px] text-ink-200">
+          <span className="hidden sm:inline">Signed in as {user.email}</span>
+          <span className="text-ink-400">·</span>
+          <SignOutButton className="rounded-lg px-2 py-1 text-[13px] text-ink-200 underline hover:bg-white/10 hover:text-white" />
+        </div>
       </header>
       <main id="main" className="mx-auto max-w-3xl px-4 py-8">
         <h1 className="text-xl font-semibold text-ink-900 sm:text-2xl">Set up your account</h1>
