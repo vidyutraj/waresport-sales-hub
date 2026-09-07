@@ -9,9 +9,9 @@ export type Tx = postgres.TransactionSql<Record<string, never>>;
  * Two connections, deliberately.
  *
  * `system` connects as the table owner. It is used ONLY by migrations, the
- * unauthenticated authentication surface (one-time codes, sessions, invite
- * claiming) and CLI scripts, because those run before a session identity
- * exists. Every code path that uses it is reviewed and enumerated in
+ * unauthenticated surface (listing sign-in choices, starting and loading
+ * sessions, creating accounts) and CLI scripts, because those run before a
+ * session identity exists. Every code path that uses it is reviewed and enumerated in
  * docs/architecture.md.
  *
  * `app` connects as `waresport_app`, which owns nothing and has NOBYPASSRLS.

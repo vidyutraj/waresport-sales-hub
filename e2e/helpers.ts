@@ -3,99 +3,26 @@ import { expect, type Page } from '@playwright/test';
 /**
  * End-to-end helpers.
  *
- * Sign-in goes through the real one-time-code flow: the app sends a message
- * over SMTP to the local Mailpit capture server, and these helpers read the
- * code back out of Mailpit's HTTP API. Nothing is stubbed, and no message ever
- * leaves the machine.
+ * Sign-in is the real product flow: /sign-in lists every account and you pick
+ * one. Nothing is stubbed and no email is involved — the app sends none.
  */
 
 /** Accounts used across the acceptance flows. */
 export const OWNER_EMAIL = 'owner@waresport.local';
 export const INTERN_A = 'intern.east@waresport.local';
 export const INTERN_B = 'intern.west@waresport.local';
-export const UNINVITED = 'stranger@example.test';
 
-export const MAILPIT_API = process.env.MAILPIT_API ?? 'http://127.0.0.1:54324/api/v1';
-
-export type MailpitMessage = {
-  ID: string;
-  Subject: string;
-  To: { Address: string }[];
-  Created: string;
-};
-
-export async function clearMailbox(): Promise<void> {
-  await fetch(`${MAILPIT_API}/messages`, { method: 'DELETE' });
-}
-
-async function listMessages(): Promise<MailpitMessage[]> {
-  const response = await fetch(`${MAILPIT_API}/messages?limit=200`);
-  if (!response.ok) throw new Error(`Mailpit is not reachable at ${MAILPIT_API}`);
-  const body = (await response.json()) as { messages: MailpitMessage[] };
-  return body.messages ?? [];
-}
-
-async function messageText(id: string): Promise<string> {
-  const response = await fetch(`${MAILPIT_API}/message/${id}`);
-  const body = (await response.json()) as { Text?: string; HTML?: string };
-  return `${body.Text ?? ''}\n${body.HTML ?? ''}`;
-}
-
-/** Wait for the newest message to `email` and return its 6-digit code. */
-export async function waitForOtp(email: string, since = new Date(0)): Promise<string> {
-  const target = email.toLowerCase();
-  const deadline = Date.now() + 20_000;
-
-  while (Date.now() < deadline) {
-    const messages = await listMessages();
-    const matching = messages
-      .filter((m) => m.To.some((t) => t.Address.toLowerCase() === target))
-      .filter((m) => new Date(m.Created).getTime() >= since.getTime() - 2000)
-      .sort((a, b) => new Date(b.Created).getTime() - new Date(a.Created).getTime());
-
-    for (const message of matching) {
-      const text = await messageText(message.ID);
-      const code = /\b(\d{6})\b/.exec(text)?.[1];
-      if (code) return code;
-    }
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  throw new Error(`No one-time code arrived for ${email} within 20s.`);
-}
-
-export async function countMessagesFor(email: string): Promise<number> {
-  const target = email.toLowerCase();
-  const messages = await listMessages();
-  return messages.filter((m) => m.To.some((t) => t.Address.toLowerCase() === target)).length;
-}
-
-/**
- * Full sign-in: request a code, read it from Mailpit, submit it.
- *
- * The resend cooldown is a real product rule, so a suite that signs in
- * repeatedly can legitimately hit it. When that happens the helper waits it
- * out and requests again rather than pretending the cooldown does not exist.
- */
+/** Sign in by picking the account with this email address. */
 export async function signIn(page: Page, email: string): Promise<void> {
   await page.goto('/sign-in');
-  await page.getByLabel('Work email').fill(email);
-
-  let since = new Date();
-  await page.getByRole('button', { name: /email me a sign-in code/i }).click();
-  await expect(page.getByText('Check your email')).toBeVisible();
-
-  const cooldownNotice = page.getByText(/you can request another in \d+s/i);
-  if (await cooldownNotice.isVisible().catch(() => false)) {
-    const resend = page.getByRole('button', { name: /send a new code|resend code in/i });
-    await expect(resend).toBeEnabled({ timeout: 30_000 });
-    since = new Date();
-    await resend.click();
-  }
-
-  const code = await waitForOtp(email, since);
-  await page.getByLabel('Verification code').fill(code);
-  await page.getByRole('button', { name: /verify and continue/i }).click();
+  const choice = page.getByRole('button', { name: new RegExp(escapeRegExp(email), 'i') });
+  await expect(choice).toBeVisible({ timeout: 10_000 });
+  await choice.click();
   await page.waitForURL((url) => !url.pathname.startsWith('/sign-in'), { timeout: 20_000 });
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export async function signOut(page: Page): Promise<void> {
@@ -107,7 +34,7 @@ export async function signOut(page: Page): Promise<void> {
   await page.waitForURL(/\/sign-in/);
 }
 
-/** Complete the onboarding form for a freshly invited intern. */
+/** Complete the onboarding form for a newly created intern. */
 export async function completeOnboarding(
   page: Page,
   input: { fullName: string; preferredName?: string },
@@ -156,8 +83,17 @@ export function localDateTime(offsetMinutes = -30): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/**
+ * A local calendar date, not a UTC one.
+ *
+ * `toISOString()` would roll the date forward once local time passes UTC
+ * midnight, which put "today" a day ahead of the app's own reporting-timezone
+ * today for any evening run.
+ */
 export function isoDate(offsetDays = 0): string {
-  return new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  const d = new Date(Date.now() + offsetDays * 86_400_000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 /** Read a StatTile's numeric value by its label. */

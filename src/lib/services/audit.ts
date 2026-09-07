@@ -8,7 +8,7 @@ import type { Tx } from '@/lib/db';
  * and DELETE for every role, including owners), and RLS makes it unreadable to
  * interns. Sensitive changes record actor, time, action, and before/after.
  *
- * Never pass credentials, one-time codes or whole contact datasets in here.
+ * Never pass session tokens or whole contact datasets in here.
  */
 
 export type AuditInput = {

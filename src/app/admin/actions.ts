@@ -5,14 +5,11 @@ import { z } from 'zod';
 import { asUser } from '@/lib/db';
 import { assertAdmin, assertOwner } from '@/lib/auth/session';
 import { fail, ok, parseForm, toFormState, type FormState } from '@/lib/form';
-import { requestAccessCode } from '@/lib/auth/service';
+import { createUserAccount } from '@/lib/auth/service';
 import {
   assignCohortMembership,
   createCohort,
-  createInvitation,
-  invitationEmailFor,
   listPeople,
-  revokeInvitation,
   setMetricPolicy,
   setOutreachEmail,
   setTerritoryStates,
@@ -48,11 +45,12 @@ import { normalizeStateCode } from '@/lib/domain/normalize';
  */
 
 // ---------------------------------------------------------------------------
-// Invitations and people
+// People
 // ---------------------------------------------------------------------------
 
-const inviteSchema = z.object({
+const addPersonSchema = z.object({
   email: z.string().trim().email('Enter a valid email address.'),
+  fullName: z.string().trim().max(120).optional(),
   role: z.enum(['intern', 'admin']),
   cohortId: z
     .string()
@@ -66,69 +64,40 @@ const inviteSchema = z.object({
     .or(z.literal('').transform(() => undefined)),
 });
 
-export async function inviteAction(_prev: FormState, formData: FormData): Promise<FormState> {
+/**
+ * Create a profile.
+ *
+ * There is no invitation and no email: the account exists as soon as this
+ * returns, and the person signs in by picking their name on /sign-in. Only the
+ * owner can mint another admin.
+ */
+export async function addPersonAction(_prev: FormState, formData: FormData): Promise<FormState> {
   const actor = await assertAdmin();
-  const parsed = parseForm(inviteSchema, formData);
+  const parsed = parseForm(addPersonSchema, formData);
   if (!parsed.ok) return parsed.state;
   const input = parsed.data;
 
   if (input.role === 'admin' && actor.role !== 'owner') {
-    return fail('Only the owner can invite an admin.');
+    return fail('Only the owner can add an admin.');
   }
 
   try {
-    const created = await asUser(actor.id, (tx) =>
-      createInvitation(tx, {
-        actorUserId: actor.id,
-        actorRole: actor.role as 'owner' | 'admin',
-        email: input.email,
-        role: input.role,
-        cohortId: input.cohortId ?? null,
-        territoryId: input.territoryId ?? null,
-      }),
-    );
-    // Sending the code is the normal auth path, so it inherits the same
-    // cooldown and rate limits as a sign-in request.
-    await requestAccessCode({ email: created.email });
+    await createUserAccount({
+      email: input.email,
+      fullName: input.fullName ?? null,
+      role: input.role,
+      cohortId: input.cohortId ?? null,
+      territoryId: input.territoryId ?? null,
+      actorUserId: actor.id,
+      actorRole: actor.role,
+    });
   } catch (error) {
-    return toFormState(error, 'Could not create that invitation.');
+    return toFormState(error, 'Could not create that profile.');
   }
 
   revalidatePath('/admin/interns');
-  return ok(`Invitation sent to ${input.email}. It expires and can be used once.`);
-}
-
-export async function resendInviteAction(_prev: FormState, formData: FormData): Promise<FormState> {
-  await assertAdmin();
-  const invitationId = String(formData.get('invitationId') ?? '');
-  const email = await invitationEmailFor(invitationId);
-  if (email === null) return fail('That invitation is no longer live.');
-
-  const result = await requestAccessCode({ email });
-  revalidatePath('/admin/interns');
-  if (!result.ok && result.reason === 'cooldown') {
-    return fail(`A code was just sent. Try again in ${result.retryAfterSeconds}s.`);
-  }
-  if (!result.ok) return fail('Too many requests for that address. Try again shortly.');
-  return ok(`Invitation resent to ${email}.`);
-}
-
-export async function revokeInviteAction(_prev: FormState, formData: FormData): Promise<FormState> {
-  const actor = await assertAdmin();
-  const invitationId = String(formData.get('invitationId') ?? '');
-  try {
-    await asUser(actor.id, (tx) =>
-      revokeInvitation(tx, {
-        actorUserId: actor.id,
-        actorRole: actor.role as 'owner' | 'admin',
-        invitationId,
-      }),
-    );
-  } catch (error) {
-    return toFormState(error, 'Could not revoke that invitation.');
-  }
-  revalidatePath('/admin/interns');
-  return ok('Invitation revoked.');
+  revalidatePath('/sign-in');
+  return ok(`${input.email} can now sign in by picking their name.`);
 }
 
 const activeSchema = z.object({

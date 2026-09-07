@@ -11,10 +11,9 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 /**
  * End-to-end configuration.
  *
- * The suite drives a real Next.js server against the real local PostgreSQL and
- * reads one-time codes out of the local Mailpit capture server, so the sign-in
- * flow under test is the actual flow, not a stub. Bring the infrastructure up
- * first:  npm run db:up && npm run db:migrate
+ * The suite drives a real Next.js server against the real local PostgreSQL, so
+ * the sign-in flow under test is the actual flow, not a stub. Bring the
+ * infrastructure up first:  npm run db:up && npm run db:migrate
  */
 export default defineConfig({
   testDir: './e2e',
@@ -53,16 +52,6 @@ export default defineConfig({
       ...process.env,
       APP_URL: BASE_URL,
       NODE_ENV: 'production',
-      // The real cooldown is 60s and is still exercised (the resend control is
-      // asserted to be disabled and counting down); a short value here just
-      // keeps a suite that signs in dozens of times from waiting on it.
-      OTP_RESEND_COOLDOWN_SECONDS: process.env.E2E_OTP_COOLDOWN ?? '3',
-      // The acceptance suite signs in far more often than a person would.
-      // The limiter itself is covered by tests/integration/auth.test.ts at its
-      // real threshold; here it is raised so it does not mask other failures.
-      AUTH_REQUEST_LIMIT_PER_EMAIL: '500',
-      AUTH_REQUEST_LIMIT_PER_IP: '2000',
-      AUTH_VERIFY_LIMIT_PER_EMAIL: '500',
     } as Record<string, string>,
   },
 });

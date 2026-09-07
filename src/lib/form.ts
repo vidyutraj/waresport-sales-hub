@@ -117,6 +117,7 @@ export function toFormState(
       'PayoutError',
       'ProspectError',
       'AdminError',
+      'UserCreationError',
       'ImportError',
     ].includes(error.name);
     if (isKnownDomainError) return fail(error.message);

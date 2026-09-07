@@ -136,7 +136,7 @@ test('validation errors are shown inline and keep what was typed', async ({ page
   await page.goto('/admin/interns');
 
   await page.getByLabel('Email address').fill('not-an-email');
-  await page.getByRole('button', { name: /send invitation/i }).click();
+  await page.getByRole('button', { name: /create profile/i }).click();
 
   await expect(page.getByText(/enter a valid email address/i).first()).toBeVisible();
   // The typed value survives the rejected submission.

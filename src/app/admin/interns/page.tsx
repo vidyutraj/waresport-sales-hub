@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth/session';
 import { asUser } from '@/lib/db';
-import { listInvitations, listPeople } from '@/lib/services/admin';
+import { listPeople } from '@/lib/services/admin';
 import { listCohorts, listTerritories } from '@/lib/queries/program';
 import { formatDateOnly, formatInstant } from '@/lib/labels';
 import {
@@ -17,8 +17,7 @@ import {
   Td,
   Th,
 } from '@/components/ui';
-import { InviteForm } from '@/components/client/invite-form';
-import { InvitationActions } from '@/components/client/invitation-actions';
+import { AddPersonForm } from '@/components/client/add-person-form';
 import { PersonActions } from '@/components/client/person-actions';
 
 export const metadata = { title: 'Interns' };
@@ -29,43 +28,40 @@ export default async function InternsPage() {
 
   const data = await asUser(user.id, async (tx) => ({
     people: await listPeople(tx),
-    invitations: await listInvitations(tx),
     cohorts: await listCohorts(tx),
     territories: await listTerritories(tx),
   }));
 
   const interns = data.people.filter((p) => p.role === 'intern');
   const staff = data.people.filter((p) => p.role !== 'intern');
-  const liveInvitations = data.invitations.filter((i) => i.status === 'live');
-  const pastInvitations = data.invitations.filter((i) => i.status !== 'live');
 
   return (
     <>
       <PageHeader
         title="Interns"
-        description="Invitation-only access. An invite is bound to one email address, expires, and can only be used once."
+        description="Profiles are created here or from the server. People sign in by picking their own name — there is no password."
       />
 
       {data.cohorts.length === 0 ? (
         <Alert tone="caution" className="mb-5" title="Create a cohort first">
           Interns need a cohort and a territory. Set one up under Targets &amp; Program before
-          inviting anyone.
+          adding anyone.
         </Alert>
       ) : null}
 
       <div className="grid gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <CardHeader
-            title="Invite someone"
+            title="Add someone"
             description={
               user.role === 'owner'
-                ? 'You can invite interns and admins.'
-                : 'Admins can invite interns. Only the owner can create another admin.'
+                ? 'You can add interns and admins.'
+                : 'Admins can add interns. Only the owner can create another admin.'
             }
           />
           <CardBody>
-            <InviteForm
-              canInviteAdmin={user.role === 'owner'}
+            <AddPersonForm
+              canAddAdmin={user.role === 'owner'}
               cohorts={data.cohorts.map((c) => ({ id: c.id, name: c.name }))}
               territories={data.territories.map((t) => ({
                 id: t.id,
@@ -78,64 +74,13 @@ export default async function InternsPage() {
         <div className="grid content-start gap-5 lg:col-span-2">
           <Card>
             <CardHeader
-              title={`Live invitations (${liveInvitations.length})`}
-              description="Not yet claimed, not yet expired."
-            />
-            {liveInvitations.length === 0 ? (
-              <EmptyState title="No outstanding invitations" />
-            ) : (
-              <TableScroll>
-                <thead>
-                  <tr>
-                    <Th>Email</Th>
-                    <Th>Role</Th>
-                    <Th>Cohort / territory</Th>
-                    <Th>Expires</Th>
-                    <Th>Sends</Th>
-                    <Th>Actions</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {liveInvitations.map((i) => (
-                    <tr key={i.id}>
-                      <Td className="wrap-anywhere">{i.email}</Td>
-                      <Td>
-                        <Badge tone={i.role === 'admin' ? 'brand' : 'neutral'}>{i.role}</Badge>
-                      </Td>
-                      <Td>
-                        {i.cohortName ?? <NotAvailable label="No cohort" />}
-                        {i.territoryCode ? (
-                          <span className="block text-[12px] text-ink-500">{i.territoryCode}</span>
-                        ) : null}
-                      </Td>
-                      <Td className="whitespace-nowrap">{formatInstant(i.expiresAt, 'UTC')}</Td>
-                      <Td>
-                        {i.sendCount}
-                        {i.lastSentAt ? (
-                          <span className="block text-[11px] text-ink-500">
-                            last {formatInstant(i.lastSentAt, 'UTC', { dateStyle: 'short' })}
-                          </span>
-                        ) : null}
-                      </Td>
-                      <Td>
-                        <InvitationActions invitationId={i.id} />
-                      </Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TableScroll>
-            )}
-          </Card>
-
-          <Card>
-            <CardHeader
               title={`Interns (${interns.length})`}
               description="Deactivating an account blocks access immediately; historical work stays attributed to them."
             />
             {interns.length === 0 ? (
               <EmptyState
                 title="No interns yet"
-                description="Invite one using the form on the left."
+                description="Add one using the form on the left."
               />
             ) : (
               <TableScroll>
@@ -267,38 +212,6 @@ export default async function InternsPage() {
               </tbody>
             </TableScroll>
           </Card>
-
-          {pastInvitations.length > 0 ? (
-            <Card>
-              <CardHeader title="Past invitations" description="Claimed, revoked or expired." />
-              <TableScroll>
-                <thead>
-                  <tr>
-                    <Th>Email</Th>
-                    <Th>Status</Th>
-                    <Th>Created</Th>
-                    <Th>By</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pastInvitations.slice(0, 20).map((i) => (
-                    <tr key={i.id}>
-                      <Td className="wrap-anywhere">{i.email}</Td>
-                      <Td>
-                        <Badge tone={i.status === 'claimed' ? 'positive' : 'neutral'}>
-                          {i.status}
-                        </Badge>
-                      </Td>
-                      <Td className="whitespace-nowrap">
-                        {formatInstant(i.createdAt, 'UTC', { timeStyle: undefined })}
-                      </Td>
-                      <Td>{i.createdByName}</Td>
-                    </tr>
-                  ))}
-                </tbody>
-              </TableScroll>
-            </Card>
-          ) : null}
         </div>
       </div>
     </>

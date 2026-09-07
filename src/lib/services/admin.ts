@@ -1,14 +1,12 @@
 import '@/lib/server-guard';
-import { asSystem, attempt, isUniqueViolation, type Tx } from '@/lib/db';
-import { env } from '@/lib/env';
+import { attempt, isUniqueViolation, type Tx } from '@/lib/db';
 import { normalizeEmail } from '@/lib/domain/normalize';
 import { seedCohortDefaultTargets } from '@/lib/queries/program';
 import { revokeAllSessionsForUser } from '@/lib/auth/service';
 import { recordAudit } from './audit';
 
 /**
- * Administrative operations: invitations, intern accounts, cohorts,
- * territories and targets.
+ * Administrative operations: accounts, cohorts, territories and targets.
  *
  * Callers must already have passed `assertAdmin()` / `assertOwner()`. These
  * functions run on the RLS-enforced connection, so the database independently
@@ -19,7 +17,6 @@ export class AdminError extends Error {
   constructor(
     message: string,
     readonly code:
-      | 'duplicate_invite'
       | 'already_member'
       | 'not_found'
       | 'not_permitted'
@@ -30,167 +27,6 @@ export class AdminError extends Error {
     super(message);
     this.name = 'AdminError';
   }
-}
-
-// ---------------------------------------------------------------------------
-// Invitations
-// ---------------------------------------------------------------------------
-
-export type InvitationRow = {
-  id: string;
-  email: string;
-  role: 'admin' | 'intern';
-  cohortId: string | null;
-  cohortName: string | null;
-  territoryId: string | null;
-  territoryCode: string | null;
-  createdByName: string;
-  createdAt: Date;
-  expiresAt: Date;
-  claimedAt: Date | null;
-  revokedAt: Date | null;
-  sendCount: number;
-  lastSentAt: Date | null;
-  status: 'live' | 'claimed' | 'revoked' | 'expired';
-};
-
-export async function createInvitation(
-  tx: Tx,
-  input: {
-    actorUserId: string;
-    actorRole: 'owner' | 'admin';
-    email: string;
-    role: 'admin' | 'intern';
-    cohortId: string | null;
-    territoryId: string | null;
-  },
-): Promise<{ invitationId: string; email: string }> {
-  const email = normalizeEmail(input.email);
-  if (!email || !/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(email)) {
-    throw new AdminError('Enter a valid email address.', 'invalid_input');
-  }
-  // Only an owner can mint another admin.
-  if (input.role === 'admin' && input.actorRole !== 'owner') {
-    throw new AdminError('Only the owner can invite an admin.', 'not_permitted');
-  }
-
-  const [existingUser] = await tx<{ id: string }[]>`SELECT id FROM users WHERE email = ${email}`;
-  if (existingUser !== undefined) {
-    throw new AdminError(
-      'That address already has an account in this workspace.',
-      'already_member',
-    );
-  }
-
-  const created = await attempt(tx, async (sp) => {
-    const [row] = await sp<{ id: string }[]>`
-      INSERT INTO invitations (email, role, cohort_id, territory_id, created_by, expires_at)
-      VALUES (${email}, ${input.role}::app_role, ${input.cohortId}, ${input.territoryId},
-              ${input.actorUserId}, now() + make_interval(hours => ${env().INVITE_TTL_HOURS}::int))
-      RETURNING id`;
-    return row;
-  });
-
-  if (!created.ok) {
-    if (isUniqueViolation(created.error)) {
-      throw new AdminError(
-        'There is already a live invitation for that address. Resend or revoke it instead.',
-        'duplicate_invite',
-      );
-    }
-    throw created.error;
-  }
-  const row = created.value;
-  if (row === undefined) throw new AdminError('Could not create that invitation.', 'invalid_input');
-
-  await recordAudit(tx, {
-    actorUserId: input.actorUserId,
-    actorRole: input.actorRole,
-    action: 'invitation.created',
-    entityType: 'invitation',
-    entityId: row.id,
-    after: { email, role: input.role, cohortId: input.cohortId, territoryId: input.territoryId },
-  });
-
-  return { invitationId: row.id, email };
-}
-
-export async function revokeInvitation(
-  tx: Tx,
-  input: { actorUserId: string; actorRole: 'owner' | 'admin'; invitationId: string },
-): Promise<void> {
-  const [row] = await tx<{ id: string; email: string }[]>`
-    UPDATE invitations
-    SET revoked_at = now(), revoked_by = ${input.actorUserId}
-    WHERE id = ${input.invitationId} AND claimed_at IS NULL AND revoked_at IS NULL
-    RETURNING id, email::text AS email`;
-  if (row === undefined) {
-    throw new AdminError('That invitation was already claimed or revoked.', 'not_found');
-  }
-  await recordAudit(tx, {
-    actorUserId: input.actorUserId,
-    actorRole: input.actorRole,
-    action: 'invitation.revoked',
-    entityType: 'invitation',
-    entityId: row.id,
-    after: { email: row.email },
-  });
-}
-
-export async function listInvitations(tx: Tx): Promise<InvitationRow[]> {
-  const rows = await tx<
-    {
-      id: string;
-      email: string;
-      role: 'admin' | 'intern';
-      cohort_id: string | null;
-      cohort_name: string | null;
-      territory_id: string | null;
-      territory_code: string | null;
-      created_by_name: string;
-      created_at: Date;
-      expires_at: Date;
-      claimed_at: Date | null;
-      revoked_at: Date | null;
-      send_count: number;
-      last_sent_at: Date | null;
-    }[]
-  >`
-    SELECT i.id, i.email::text AS email, i.role, i.cohort_id, c.name AS cohort_name,
-           i.territory_id, t.code AS territory_code,
-           coalesce(u.preferred_name, u.full_name, u.email::text) AS created_by_name,
-           i.created_at, i.expires_at, i.claimed_at, i.revoked_at, i.send_count, i.last_sent_at
-    FROM invitations i
-    JOIN users u ON u.id = i.created_by
-    LEFT JOIN cohorts c ON c.id = i.cohort_id
-    LEFT JOIN territories t ON t.id = i.territory_id
-    ORDER BY i.created_at DESC`;
-
-  const now = Date.now();
-  return rows.map((r) => ({
-    id: r.id,
-    email: r.email,
-    role: r.role,
-    cohortId: r.cohort_id,
-    cohortName: r.cohort_name,
-    territoryId: r.territory_id,
-    territoryCode: r.territory_code,
-    createdByName: r.created_by_name,
-    createdAt: r.created_at,
-    expiresAt: r.expires_at,
-    claimedAt: r.claimed_at,
-    revokedAt: r.revoked_at,
-    sendCount: r.send_count,
-    lastSentAt: r.last_sent_at,
-    status:
-      r.claimed_at !== null
-        ? 'claimed'
-        : r.revoked_at !== null
-          ? 'revoked'
-          : r.expires_at.getTime() <= now
-            ? 'expired'
-            : 'live',
-  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -435,7 +271,7 @@ export async function createCohort(
   });
   if (!created.ok) {
     if (isUniqueViolation(created.error)) {
-      throw new AdminError('A cohort with that name already exists.', 'duplicate_invite');
+      throw new AdminError('A cohort with that name already exists.', 'conflict');
     }
     throw created.error;
   }
@@ -665,15 +501,5 @@ export async function setTerritoryStates(
     entityType: 'territory',
     entityId: input.territoryId,
     after: { stateCodes: [...input.stateCodes] },
-  });
-}
-
-/** Resend an invitation code. Reuses the standard cooldown/rate limits. */
-export async function invitationEmailFor(invitationId: string): Promise<string | null> {
-  return asSystem(async (tx) => {
-    const [row] = await tx<{ email: string }[]>`
-      SELECT email::text AS email FROM invitations
-      WHERE id = ${invitationId} AND claimed_at IS NULL AND revoked_at IS NULL`;
-    return row?.email ?? null;
   });
 }

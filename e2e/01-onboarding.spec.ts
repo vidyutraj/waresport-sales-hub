@@ -1,78 +1,35 @@
 import { expect, test } from '@playwright/test';
 import {
-  clearMailbox,
   completeOnboarding,
-  countMessagesFor,
   INTERN_A,
   INTERN_B,
   isoDate,
   OWNER_EMAIL,
   signIn,
   signOut,
-  UNINVITED,
-  waitForOtp,
 } from './helpers';
 
 /**
- * Acceptance flow 1: bootstrap owner, set up the program, invite an intern,
- * exercise the one-time-code edge cases, complete onboarding, and prove the
- * session survives a reload and a fresh sign-in.
+ * Acceptance flow 1: the owner signs in, sets up the program, creates two
+ * intern profiles, they sign in by picking their own name and complete
+ * onboarding, and the session survives a reload and a fresh browser context.
  */
 
 test.describe.configure({ mode: 'serial' });
 
-test('owner signs in with a real one-time code', async ({ page }) => {
-  await signIn(page, OWNER_EMAIL);
+test('the owner signs in by picking their name', async ({ page }) => {
+  await page.goto('/sign-in');
+  await expect(page.getByRole('heading', { name: /who are you/i })).toBeVisible();
+
+  await page.getByRole('button', { name: new RegExp(OWNER_EMAIL, 'i') }).click();
   await expect(page).toHaveURL(/\/admin/);
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
   await expect(page.getByText('owner', { exact: false }).first()).toBeVisible();
 });
 
-test('a wrong code is rejected and reports remaining attempts', async ({ page }) => {
+test('an account that does not exist cannot be picked', async ({ page }) => {
   await page.goto('/sign-in');
-  await page.getByLabel('Work email').fill(OWNER_EMAIL);
-  await page.getByRole('button', { name: /email me a sign-in code/i }).click();
-  await expect(page.getByText('Check your email')).toBeVisible();
-
-  await page.getByLabel('Verification code').fill('000000');
-  await page.getByRole('button', { name: /verify and continue/i }).click();
-
-  await expect(page.getByText('That code is not correct.')).toBeVisible();
-  await expect(page.getByText(/attempts? remaining/i)).toBeVisible();
-  await expect(page).toHaveURL(/\/sign-in/);
-});
-
-test('an uninvited address gets no workspace access', async ({ page }) => {
-  const since = new Date();
-  await page.goto('/sign-in');
-  await page.getByLabel('Work email').fill(UNINVITED);
-  await page.getByRole('button', { name: /email me a sign-in code/i }).click();
-
-  // The response is identical to a known address: no account enumeration.
-  await expect(page.getByText('Check your email')).toBeVisible();
-
-  // ...but no code is ever actually sent.
-  await new Promise((r) => setTimeout(r, 1500));
-  expect(await countMessagesFor(UNINVITED)).toBe(0);
-  void since;
-
-  // A guessed code cannot get in either.
-  await page.getByLabel('Verification code').fill('123456');
-  await page.getByRole('button', { name: /verify and continue/i }).click();
-  await expect(page.getByText('That code is not correct.')).toBeVisible();
-  await expect(page).toHaveURL(/\/sign-in/);
-});
-
-test('the resend cooldown is enforced', async ({ page }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Work email').fill(OWNER_EMAIL);
-  await page.getByRole('button', { name: /email me a sign-in code/i }).click();
-  await expect(page.getByText('Check your email')).toBeVisible();
-
-  // The resend control is disabled and counts down.
-  const resend = page.getByRole('button', { name: /resend code in \d+s/i });
-  await expect(resend).toBeVisible();
-  await expect(resend).toBeDisabled();
+  await expect(page.getByRole('button', { name: /stranger@example\.test/i })).toHaveCount(0);
 });
 
 test('owner creates a cohort with the program-guide defaults', async ({ page }) => {
@@ -96,7 +53,7 @@ test('owner creates a cohort with the program-guide defaults', async ({ page }) 
   await expect(week2).toContainText('100');
 });
 
-test('owner invites two interns and they claim their invitations', async ({ page }) => {
+test('owner creates two intern profiles', async ({ page }) => {
   await signIn(page, OWNER_EMAIL);
   await page.goto('/admin/interns');
 
@@ -110,15 +67,30 @@ test('owner invites two interns and they claim their invitations', async ({ page
     await page
       .getByLabel('Territory')
       .selectOption({ label: `${territory} — ${territory === 'EAST' ? 'East' : 'West'}` });
-    await page.getByRole('button', { name: /send invitation/i }).click();
-    await expect(page.getByText(new RegExp(`Invitation sent to ${email}`, 'i'))).toBeVisible();
+    await page.getByRole('button', { name: /create profile/i }).click();
+    await expect(page.getByText(new RegExp(`${email} can now sign in`, 'i'))).toBeVisible();
   }
 
   await expect(page.getByRole('cell', { name: INTERN_A })).toBeVisible();
   await expect(page.getByRole('cell', { name: INTERN_B })).toBeVisible();
 });
 
-test('intern A claims the invitation and completes onboarding', async ({ page }) => {
+test('the same address cannot be added twice', async ({ page }) => {
+  await signIn(page, OWNER_EMAIL);
+  await page.goto('/admin/interns');
+
+  await page.getByLabel('Email address').fill(INTERN_A);
+  await page.getByRole('button', { name: /create profile/i }).click();
+  await expect(page.getByText(/already has an account/i)).toBeVisible();
+});
+
+test('a new profile appears on the sign-in screen', async ({ page }) => {
+  await page.goto('/sign-in');
+  await expect(page.getByRole('button', { name: new RegExp(INTERN_A, 'i') })).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(INTERN_B, 'i') })).toBeVisible();
+});
+
+test('intern A signs in and completes onboarding', async ({ page }) => {
   await signIn(page, INTERN_A);
   await completeOnboarding(page, { fullName: 'Erin East', preferredName: 'Erin' });
 
@@ -129,24 +101,17 @@ test('intern A claims the invitation and completes onboarding', async ({ page })
   await expect(page.getByText(/week \d+ ·/i).first()).toBeVisible();
 });
 
-test('intern B claims the invitation and completes onboarding', async ({ page }) => {
+test('intern B signs in and completes onboarding', async ({ page }) => {
   await signIn(page, INTERN_B);
   await completeOnboarding(page, { fullName: 'Wes West', preferredName: 'Wes' });
   await expect(page).toHaveURL(/\/overview/);
   await expect(page.getByText(/west group/i)).toBeVisible();
 });
 
-test('a claimed invitation cannot be used a second time', async ({ page }) => {
-  // Signing in again works (the account now exists), but the invitation itself
-  // is consumed — visible to the admin as "claimed".
-  await signIn(page, INTERN_A);
-  await expect(page).toHaveURL(/\/overview/);
-  await signOut(page);
-
-  await signIn(page, OWNER_EMAIL);
-  await page.goto('/admin/interns');
-  await expect(page.getByRole('heading', { name: /live invitations \(0\)/i })).toBeVisible();
-  await expect(page.getByRole('cell', { name: 'claimed' }).first()).toBeVisible();
+test('the picker shows the name people chose during onboarding', async ({ page }) => {
+  await page.goto('/sign-in');
+  await expect(page.getByRole('button', { name: /erin/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /wes/i })).toBeVisible();
 });
 
 test('data survives a reload and a brand new session', async ({ page, context }) => {
@@ -175,29 +140,4 @@ test('data survives a reload and a brand new session', async ({ page, context })
   await freshPage.goto('/profile');
   await expect(freshPage.getByLabel('Full name')).toHaveValue('Erin East');
   await fresh.close();
-});
-
-test('an expired code is refused', async ({ page }) => {
-  await clearMailbox();
-  const since = new Date();
-  await page.goto('/sign-in');
-  await page.getByLabel('Work email').fill(INTERN_B);
-  await page.getByRole('button', { name: /email me a sign-in code/i }).click();
-  const code = await waitForOtp(INTERN_B, since);
-
-  // Age the code past its TTL directly in the database, then try to use it.
-  const postgres = (await import('postgres')).default;
-  const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
-  try {
-    await sql`
-      UPDATE auth_codes SET expires_at = now() - interval '1 minute'
-      WHERE email = ${INTERN_B} AND consumed_at IS NULL`;
-  } finally {
-    await sql.end({ timeout: 5 });
-  }
-
-  await page.getByLabel('Verification code').fill(code);
-  await page.getByRole('button', { name: /verify and continue/i }).click();
-  await expect(page.getByText(/that code has expired/i)).toBeVisible();
-  await expect(page).toHaveURL(/\/sign-in/);
 });

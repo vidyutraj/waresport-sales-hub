@@ -9,9 +9,9 @@ config({ path: resolve(process.cwd(), '.env'), quiet: true });
  * E2E global setup.
  *
  * Truncates the workspace and creates one owner account, so every run starts
- * from the documented "clean database, bootstrap an owner" state. Everything
- * else — cohort, invitations, interns, leads — is created through the UI by
- * the tests themselves, which is the point.
+ * from the documented "clean database, create the first account" state.
+ * Everything else — cohort, interns, leads — is created through the UI by the
+ * tests themselves, which is the point.
  */
 
 const OWNER_EMAIL = 'owner@waresport.local';
@@ -44,10 +44,7 @@ const BUSINESS_TABLES = [
   'intern_provisioning',
   'training_completions',
   'cohort_memberships',
-  'invitations',
-  'auth_codes',
   'sessions',
-  'rate_limits',
   'cohorts',
   'users',
 ];
@@ -87,8 +84,8 @@ export default async function globalSetup() {
       SELECT s, ${west.id} FROM unnest(ARRAY['CA','TX','WA','OR','AZ','CO','NV','UT','ID','MT']::text[]) AS s
       ON CONFLICT (state_code) DO UPDATE SET territory_id = EXCLUDED.territory_id`;
 
-    // The documented owner bootstrap, applied directly so the suite does not
-    // shell out. It is the same INSERT `npm run bootstrap:owner` performs.
+    // The documented first account, applied directly so the suite does not
+    // shell out. It is the same INSERT `npm run user:create` performs.
     await sql`
       INSERT INTO users (email, role, status, full_name, timezone,
                          email_verified_at, onboarding_completed_at, program_acknowledged_at)
@@ -97,14 +94,5 @@ export default async function globalSetup() {
       ON CONFLICT (email) DO UPDATE SET role = 'owner', status = 'active'`;
   } finally {
     await sql.end({ timeout: 5 });
-  }
-
-  // Start from an empty inbox so OTP lookups are unambiguous.
-  try {
-    await fetch(`${process.env.MAILPIT_API ?? 'http://127.0.0.1:54324/api/v1'}/messages`, {
-      method: 'DELETE',
-    });
-  } catch {
-    throw new Error('Mailpit is not reachable. Run `npm run db:up` to start it.');
   }
 }

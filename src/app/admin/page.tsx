@@ -83,7 +83,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
       {dashboard.cohort === null ? (
         <Alert tone="caution" title="No cohort configured">
           <p className="mb-2">
-            Create a cohort with a start date and reporting timezone before inviting interns.
+            Create a cohort with a start date and reporting timezone before adding interns.
           </p>
           <LinkButton href="/admin/targets" variant="primary" size="sm">
             Set up the program

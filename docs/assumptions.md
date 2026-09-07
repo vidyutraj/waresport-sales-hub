@@ -204,8 +204,7 @@ to type a metric directly.
 ## 10. What this system deliberately does not do
 
 - It does **not** send outreach. Interns send from their own Waresport mailbox
-  and LinkedIn account and record it here. Automated email exists only for
-  sign-in codes and invitations.
+  and LinkedIn account and record it here. The system sends no email at all.
 - It does **not** scrape or fetch LinkedIn. Profile URLs are validated and
   canonicalised as text.
 - It does **not** track opens, clicks or deliverability. A `mailto:` link, a

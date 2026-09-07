@@ -7,35 +7,40 @@
 | Framework | Next.js 16 (App Router), React 19, TypeScript 5.9 | Server components keep authorization and data access on the server; server actions give progressively-enhanced forms without a separate API surface. |
 | Database | PostgreSQL 17 | Row level security, partial unique indexes and transactions do the correctness work that application code would otherwise get wrong. |
 | Data access | `postgres` (postgres.js), hand-written SQL | The correctness rules here are transactional and index-shaped; an ORM would obscure them. |
-| Auth | First-party email one-time codes, DB-backed sessions | See "Deviation from the suggested stack" below. |
+| Auth | Pick-your-profile sign-in, DB-backed sessions | Internal tool on a trusted network. See "Deviation from the suggested stack" below. |
 | Validation | Zod 4 | One schema per action, server-side. Client validation is UX only. |
 | Styling | Tailwind CSS 4 with `@theme` tokens | Brand values are declared once in `src/app/globals.css`. |
 | Tests | Vitest 4 (unit + integration), Playwright 1.63 (E2E) | Integration tests run against real PostgreSQL with RLS on; E2E drives a production build. |
-| Local infra | Docker Compose: `postgres:17-alpine`, `axllent/mailpit` | Two small containers, ~150 MB total. |
+| Local infra | Docker Compose: `postgres:17-alpine` | One small container. The app sends no email. |
 
 ### Deviation from the suggested stack
 
 The brief suggested Supabase (Postgres + GoTrue + Inbucket). This build uses
-**PostgreSQL directly with first-party OTP authentication and Mailpit** for
-local mail capture. Two reasons:
+**PostgreSQL directly, with sign-in reduced to picking your own profile**. Two
+reasons:
 
 1. **Disk.** The full Supabase local stack pulls roughly 4 GB of images. The
-   build machine had 14 GiB free (99% full). Postgres + Mailpit is ~150 MB.
-2. **Control.** The brief asks for specific auth semantics — email-bound
-   single-use invites claimed atomically, resend cooldowns, per-address and
-   per-IP rate limits, immediate session revocation on deactivation, and
-   "a verified but uninvited user gets no access". Implementing these directly
-   made them testable at the exact boundaries the brief describes.
+   build machine had 14 GiB free (99% full). Postgres alone is ~80 MB.
+2. **Scope.** This is an internal workspace for one small team on a trusted
+   network. Accounts are created from the backend (`npm run user:create`, or
+   *Interns → Add someone*) and people sign in by choosing their name; there is
+   no password, no email code and no self-signup.
 
-What is *not* given up: row level security is used exactly as it would be with
-Supabase. All business queries run through a `waresport_app` role that owns no
-tables and has `NOBYPASSRLS`, with the actor pinned per transaction. The
-policies in `db/migrations/0008_policies.sql` are the real enforcement, and
+**This is identification, not authentication.** Anyone who can reach the app can
+sign in as anyone listed, so the app must not be exposed publicly. What it is
+*not* is an authorization hole: the role comes from the stored user row, never
+from the request, deactivation revokes live sessions on the next request, and
+every business query still runs under row level security.
+
+Row level security is used exactly as it would be with Supabase. All business
+queries run through a `waresport_app` role that owns no tables and has
+`NOBYPASSRLS`, with the actor pinned per transaction. The policies in
+`db/migrations/0008_policies.sql` are the real enforcement, and
 `tests/integration/authorization.test.ts` proves it against the live database.
 
-Swapping in Supabase later would mean replacing `src/lib/auth/*` and mapping
-`app.current_user_id()` to `auth.uid()`; the policies themselves would carry
-over unchanged.
+Adding real authentication later means replacing `src/lib/auth/*` — the picker
+and `startSessionForUser` become a credential check that ends in the same
+`sessions` insert. Everything downstream of `currentUser()` is unaffected.
 
 ---
 
@@ -51,9 +56,9 @@ appSql()     → APP_DATABASE_URL  (waresport_app; NOBYPASSRLS, owns nothing)
 **`asSystem()` is used only where no session identity exists yet**, and the list
 is short and closed:
 
-- `scripts/migrate.ts`, `scripts/seed.ts`, `scripts/bootstrap-owner.ts`
-- `src/lib/auth/service.ts` — issuing and verifying one-time codes, creating and
-  loading sessions, claiming an invitation, bootstrapping the first owner
+- `scripts/migrate.ts`, `scripts/seed.ts`, `scripts/create-user.ts`
+- `src/lib/auth/service.ts` — listing the sign-in choices, starting and loading
+  sessions, creating accounts
 - test fixtures (`tests/integration/factories.ts`)
 
 **Everything else runs through `asUser(userId, fn)`**, which opens a transaction
@@ -77,7 +82,7 @@ connection would fail. `attempt(tx, fn)` wraps a risky statement in a SAVEPOINT
 and returns a result instead of throwing. It is used wherever a constraint
 violation is an *expected* outcome: duplicate assignment claims, repeated
 connection requests, concurrent payouts, idempotent import upserts, and
-concurrent owner bootstrap.
+concurrent account creation.
 
 ---
 
@@ -90,13 +95,11 @@ Tables, grouped by migration. Foreign keys, indexes and constraints are in
 
 - **`users`** — one row per person: email (citext, unique), `role`
   (`owner|admin|intern`), `status` (`invited|active|deactivated`), profile
-  fields, `row_version` for optimistic locking.
+  fields, `row_version` for optimistic locking. Rows are created only from the
+  backend; `/sign-in` lists every non-deactivated one.
 - **`sessions`** — opaque tokens stored only as a keyed SHA-256 digest.
-- **`auth_codes`** — one-time codes, hashed, with expiry and an attempt counter.
-- **`rate_limits`** — durable fixed-window counters.
-- **`invitations`** — email-bound, expiring, single-use. A partial unique index
-  (`invitations_one_live_per_email`) allows at most one live invitation per
-  address; the atomic claim is an `UPDATE ... WHERE claimed_at IS NULL`.
+- `auth_codes`, `invitations` and `rate_limits` existed for the original
+  one-time-code sign-in and were dropped in `0011_drop_email_auth.sql`.
 - **`cohorts`**, **`territories`**, **`territory_states`**,
   **`cohort_memberships`** — program scaffolding. `cohort_memberships_one_active`
   keeps an intern in at most one active cohort.

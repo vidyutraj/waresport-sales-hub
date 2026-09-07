@@ -64,7 +64,7 @@ npm ci
 # 2. Configure
 cp .env.example .env.local        # dev-safe defaults; nothing to edit to start
 
-# 3. Start PostgreSQL 17 + Mailpit (waits until both are healthy)
+# 3. Start PostgreSQL 17 (waits until it is healthy)
 npm run db:up
 
 # 4. Create the schema and baseline data
@@ -72,16 +72,26 @@ npm run db:migrate
 npm run db:seed                   # territories, training topics, starter scripts
                                   # no accounts, no leads
 
-# 5. Create the first owner (this is the only way an owner is created)
-npm run bootstrap:owner -- --email owner@waresport.local --name "Your Name"
+# 5. Create the first owner (accounts are only ever created from the backend)
+npm run user:create -- --email owner@waresport.local --name "Your Name" --role owner
 
 # 6. Run
 npm run dev                       # http://localhost:3000
 ```
 
-Sign in at <http://localhost:3000/sign-in>. There are no passwords: a six-digit
-code is emailed to you. In development that email is captured locally — open
-**<http://127.0.0.1:54324>** (Mailpit) to read it. Nothing leaves the machine.
+Sign in at <http://localhost:3000/sign-in>. There are no passwords and no
+codes: the page lists every profile and you pick your own. That is
+identification, not authentication — anyone who can reach the app can pick any
+listed profile — so run it on a trusted network. Roles still decide what each
+account can do, and row level security enforces that in the database.
+
+Add more people with the same command, or from *Interns → Add someone* once an
+owner exists:
+
+```bash
+npm run user:create -- --email jordan@waresport.com --name "Jordan Lee" \
+  --role intern --cohort "Spring 2026" --territory EAST
+```
 
 To start over: `npm run db:reset` (drops the volume, re-migrates, re-seeds).
 
@@ -89,16 +99,16 @@ To start over: `npm run db:reset` (drops the volume, re-migrates, re-seeds).
 
 ## Admin quick start
 
-1. **Sign in as the owner.** Enter your address, read the code in Mailpit, enter it.
+1. **Sign in as the owner.** Pick your name on the sign-in screen.
 2. **Create a cohort** — *Targets & Program*. Give it a name, a start date and a
    reporting timezone. It is seeded with the program guide's targets: 75/50 in
    week 1, then 150/100.
 3. **Check the territory map** — *Settings*. The seed maps all 50 states to East
    or West; adjust it before importing so clubs land in the right territory.
    Unmapped states import as unassigned and are flagged.
-4. **Invite interns** — *Interns*. Enter an address, pick the cohort and
-   territory, send. They receive a one-time code. Only the owner can invite
-   another admin.
+4. **Add interns** — *Interns → Add someone*. Name, address, cohort and
+   territory. The profile can be signed into immediately. Only the owner can
+   add another admin. `npm run user:create` does the same thing from a shell.
 5. **Import leads** — *Leads & Imports → Import CSV*. Upload, review the preview
    (nothing is written yet), then confirm. The report accounts for every parsed
    row in mutually exclusive buckets; rejected rows can be downloaded as CSV.
@@ -118,7 +128,7 @@ To start over: `npm run db:reset` (drops the volume, re-migrates, re-seeds).
 
 ## Intern quick start
 
-1. Open the invitation email, click through, enter the code.
+1. Open the app and pick your name on the sign-in screen.
 2. Complete onboarding: name, timezone, and tick what training you have covered.
    Territory, cohort and your Waresport outreach address are set by an admin.
 3. **Overview** shows the current week, your targets and what is left.
@@ -156,10 +166,8 @@ running, so they are deterministic and independent of anything left behind.
 as the same `waresport_app` role the application uses, which owns no tables and
 has `NOBYPASSRLS`, so a policy that did not work would fail the test.
 
-E2E signs in through the real one-time-code flow, reading codes back from the
-local Mailpit capture server. The suite raises the auth rate limits for its own
-run (a suite signs in far more often than a person does); the limiter itself is
-tested at its real threshold in the integration suite.
+E2E signs in through the real flow: it opens `/sign-in` and clicks the profile
+it wants, exactly as a person would. Nothing is stubbed.
 
 ### The supplied lead file
 
@@ -187,13 +195,12 @@ that **must** be replaced.
 
 | Variable | Notes |
 | --- | --- |
-| `DATABASE_URL` | Owning connection. Migrations, sign-in, invite claim, CLI. |
+| `DATABASE_URL` | Owning connection. Migrations, sign-in, account creation, CLI. |
 | `APP_DATABASE_URL` | Request-scoped connection as `waresport_app`. Must be a role with `NOBYPASSRLS` that owns no tables — this is what makes RLS real. |
 | `AUTH_SECRET` | `openssl rand -base64 48`. Rotating it invalidates all sessions and codes. |
-| `APP_URL` | Must be the real `https://` origin. Session cookies are marked `Secure` when it is, and it is used in invitation links and the sign-out origin check. |
+| `APP_URL` | Must be the real `https://` origin. Session cookies are marked `Secure` when it is, and it is used for the sign-out origin check. |
 | `SMTP_*`, `MAIL_FROM` | A real provider. **This is the one external dependency that cannot be verified locally** — see below. |
-| `OWNER_BOOTSTRAP_EMAILS` | Allowlist for `bootstrap:owner`. Not a password; the account still verifies by email. |
-| `SESSION_TTL_HOURS`, `OTP_*`, `INVITE_TTL_HOURS` | Session and code lifetimes. |
+| `SESSION_TTL_HOURS` | How long a session cookie stays valid. |
 | `AUTH_REQUEST_LIMIT_*`, `AUTH_VERIFY_LIMIT_*`, `AUTH_RATE_WINDOW_SECONDS` | Rate limits. Defaults are strict; raise only with a reason. |
 | `IMPORT_MAX_FILE_BYTES`, `IMPORT_MAX_ROWS` | Import guardrails. |
 | `STORAGE_DIR` | Private resource attachments. Must be writable and **must not** be web-served; files are streamed through an authorization-checked route. |
@@ -217,7 +224,7 @@ npm run db:migrate     # against the production DATABASE_URL
 npm run db:seed        # safe: no accounts, no leads, idempotent
 npm run build
 npm start
-npm run bootstrap:owner -- --email you@waresport.com
+npm run user:create -- --email you@waresport.com --name "Your Name" --role owner
 ```
 
 Any Node host works (the app is fully dynamic — no static export). Behind a
@@ -226,7 +233,7 @@ proxy, forward `X-Forwarded-For` so per-address rate limiting sees real clients.
 ### Verified vs. not verified
 
 - **Verified locally:** schema migration from empty, seeding, owner bootstrap,
-  the full auth flow against real SMTP-over-Mailpit, the import of the actual
+  the real sign-in flow, the import of the actual
   1,231-row file, all dashboards, and every acceptance flow against a production
   build.
 - **Not verified:** delivery through a real production email provider. No
@@ -240,13 +247,14 @@ proxy, forward `X-Forwarded-For` so per-address rate limiting sees real clients.
 
 - Two database connections. Business queries run as a non-owner role with RLS
   enforced; the privileged connection is used only where no session exists yet
-  (migrations, sign-in, invite claim, CLI) and that list is enumerated in
+  (migrations, sign-in, account creation, CLI) and that list is enumerated in
   `docs/architecture.md`.
-- Roles are never read from client input. An invite carries the role; only the
+- Roles are never read from client input. The role comes from the stored user
+  row; only the
   owner can grant admin, and a database trigger enforces it.
 - Sign-out is POST-only. A GET sign-out is fired by link prefetching or a
   cross-site `<img>`.
-- Session tokens and one-time codes are stored only as keyed SHA-256 digests.
+- Session tokens are stored only as keyed SHA-256 digests.
 - Deactivating an account revokes its sessions immediately.
 - The audit log is append-only for every role, including owners.
 - Only `http(s)` links are ever rendered as anchors; imported `javascript:` and
@@ -255,7 +263,7 @@ proxy, forward `X-Forwarded-For` so per-address rate limiting sees real clients.
 - Resource attachments are stored outside the web root under generated
   filenames and served through an authorization-checked route with
   `Content-Disposition: attachment`.
-- Credentials, OTPs and whole contact datasets are never written to logs.
+- Session tokens and whole contact datasets are never written to logs.
 
 ## Known limitations
 

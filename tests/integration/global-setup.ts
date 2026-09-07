@@ -43,10 +43,7 @@ const BUSINESS_TABLES = [
   'intern_provisioning',
   'training_completions',
   'cohort_memberships',
-  'invitations',
-  'auth_codes',
   'sessions',
-  'rate_limits',
   'cohorts',
   'users',
 ];

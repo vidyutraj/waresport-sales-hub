@@ -1,33 +1,43 @@
 'use client';
 
-import { inviteAction } from '@/app/admin/actions';
+import { addPersonAction } from '@/app/admin/actions';
 import { ActionForm, SubmitButton } from '@/components/client/form';
 import { Field, Input, Select } from '@/components/ui';
 
-export function InviteForm({
-  canInviteAdmin,
+export function AddPersonForm({
+  canAddAdmin,
   cohorts,
   territories,
 }: {
-  canInviteAdmin: boolean;
+  canAddAdmin: boolean;
   cohorts: { id: string; name: string }[];
   territories: { id: string; label: string }[];
 }) {
   return (
-    <ActionForm action={inviteAction}>
+    <ActionForm action={addPersonAction}>
       {(state) => {
         // Restored after a rejected submission; React resets the form itself.
         const kept = state.values ?? {};
         return (
           <>
+            <Field label="Name" htmlFor="person-name" error={state.fieldErrors.fullName}>
+              <Input
+                id="person-name"
+                name="fullName"
+                placeholder="Jordan Lee"
+                defaultValue={state.status === 'error' ? (kept.fullName ?? '') : ''}
+              />
+            </Field>
+
             <Field
               label="Email address"
-              htmlFor="invite-email"
+              htmlFor="person-email"
               required
+              hint="Identifies the account. No email is ever sent to it."
               error={state.fieldErrors.email}
             >
               <Input
-                id="invite-email"
+                id="person-email"
                 name="email"
                 type="email"
                 required
@@ -36,21 +46,21 @@ export function InviteForm({
               />
             </Field>
 
-            <Field label="Role" htmlFor="invite-role" required error={state.fieldErrors.role}>
-              <Select id="invite-role" name="role" defaultValue={kept.role ?? 'intern'}>
+            <Field label="Role" htmlFor="person-role" required error={state.fieldErrors.role}>
+              <Select id="person-role" name="role" defaultValue={kept.role ?? 'intern'}>
                 <option value="intern">Intern</option>
-                {canInviteAdmin ? <option value="admin">Admin</option> : null}
+                {canAddAdmin ? <option value="admin">Admin</option> : null}
               </Select>
             </Field>
 
             <Field
               label="Cohort"
-              htmlFor="invite-cohort"
+              htmlFor="person-cohort"
               hint="Sets their program weeks and reporting timezone."
               error={state.fieldErrors.cohortId}
             >
               <Select
-                id="invite-cohort"
+                id="person-cohort"
                 name="cohortId"
                 defaultValue={kept.cohortId ?? cohorts[0]?.id ?? ''}
               >
@@ -65,12 +75,12 @@ export function InviteForm({
 
             <Field
               label="Territory"
-              htmlFor="invite-territory"
+              htmlFor="person-territory"
               hint="The intern cannot change this themselves."
               error={state.fieldErrors.territoryId}
             >
               <Select
-                id="invite-territory"
+                id="person-territory"
                 name="territoryId"
                 defaultValue={kept.territoryId ?? ''}
               >
@@ -84,11 +94,11 @@ export function InviteForm({
             </Field>
 
             <div>
-              <SubmitButton pendingLabel="Sending…">Send invitation</SubmitButton>
+              <SubmitButton pendingLabel="Creating…">Create profile</SubmitButton>
             </div>
             <p className="text-[12px] text-ink-500">
-              The invitee receives a one-time code by email. No password is ever created, and an
-              uninvited address that verifies its email still gets no access.
+              The profile appears on the sign-in screen straight away. There is no password: people
+              sign in by picking their own name.
             </p>
           </>
         );

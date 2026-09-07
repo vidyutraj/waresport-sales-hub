@@ -275,8 +275,8 @@ async function main() {
         `${PROGRAM_DEFAULT_TARGETS.week1.linkedin} requests; weeks 2-12 = ` +
         `${PROGRAM_DEFAULT_TARGETS.laterWeeks.emails} / ${PROGRAM_DEFAULT_TARGETS.laterWeeks.linkedin}.`,
     );
-    console.info('No accounts and no lead data were created. Bootstrap an owner next:');
-    console.info('  npm run bootstrap:owner -- --email <your address>');
+    console.info('No accounts and no lead data were created. Create the first account next:');
+    console.info('  npm run user:create -- --email <your address> --name "Your Name" --role owner');
   });
 }
 

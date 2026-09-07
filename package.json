@@ -16,7 +16,7 @@
     "db:reset": "bash scripts/db-reset.sh",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "bootstrap:owner": "tsx scripts/bootstrap-owner.ts",
+    "user:create": "tsx scripts/create-user.ts",
     "import:csv": "tsx scripts/import-csv.ts",
     "test": "vitest run --project unit",
     "test:unit": "vitest run --project unit",

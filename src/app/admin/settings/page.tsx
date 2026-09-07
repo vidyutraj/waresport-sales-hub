@@ -225,9 +225,8 @@ export default async function SettingsPage() {
             <CardBody className="grid gap-2 text-[13px] text-ink-700">
               <p>
                 <strong>Owner</strong> — the only role that can grant or revoke admin. Created
-                server-side via{' '}
-                <code className="font-mono text-[12px]">npm run bootstrap:owner</code>, never by a
-                public signup.
+                server-side via <code className="font-mono text-[12px]">npm run user:create</code>,
+                never by a public signup.
               </p>
               <p>
                 <strong>Admin</strong> — manages interns, leads, targets, meeting verification and
@@ -239,7 +238,9 @@ export default async function SettingsPage() {
               </p>
               <p className="text-[12px] text-ink-500">
                 These boundaries are enforced by PostgreSQL row level security as well as by the
-                application, so a forged request cannot bypass them.
+                application, so a forged request cannot bypass them. Sign-in itself is
+                identification, not authentication: anyone who can reach the app can pick any listed
+                profile, so keep it on a trusted network.
               </p>
             </CardBody>
           </Card>
