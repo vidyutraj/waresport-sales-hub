@@ -24,9 +24,28 @@ const globalForDb = globalThis as unknown as {
   __waresportAppSql?: Sql;
 };
 
+/**
+ * A transaction pooler (Neon's `-pooler` endpoint, Supabase's pgbouncer) hands
+ * each statement to whichever backend is free, so a prepared statement created
+ * on one connection is missing on the next. postgres.js prepares by default,
+ * which fails there with "prepared statement does not exist".
+ */
+function isTransactionPooler(url: string): boolean {
+  return /-pooler\.|pgbouncer=true/.test(url);
+}
+
+/**
+ * On a serverless platform every warm instance holds its own pool, so a large
+ * `max` multiplies straight into the database's connection limit.
+ */
+function isServerless(): boolean {
+  return process.env.VERCEL === '1' || process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined;
+}
+
 function create(url: string, max: number): Sql {
   return postgres(url, {
-    max,
+    max: isServerless() ? Math.min(max, 3) : max,
+    prepare: !isTransactionPooler(url),
     idle_timeout: 20,
     max_lifetime: 60 * 30,
     onnotice: () => {},

@@ -32,7 +32,10 @@ async function main() {
 
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
-  const sql = postgres(url, { max: 1, onnotice: () => {} });
+  // Same pooler caveat as the application client: no prepared statements when
+  // the connection goes through a transaction pooler.
+  const pooled = /-pooler\.|pgbouncer=true/.test(url);
+  const sql = postgres(url, { max: 1, prepare: !pooled, onnotice: () => {} });
 
   try {
     await sql`
