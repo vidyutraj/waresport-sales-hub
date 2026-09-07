@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { asUser } from '@/lib/db';
+import { asSystem, asUser } from '@/lib/db';
 import {
   addMembership,
   assignOrg,
@@ -26,8 +26,10 @@ import {
 } from '@/lib/services/outreach';
 import {
   createProspect,
+  logLinkedInConnection,
   recordConnectionRequest,
   recordProspectEvent,
+  updateProspectNotes,
 } from '@/lib/services/prospects';
 import { outreachTotals, recentActivity } from '@/lib/queries/metrics';
 import { DEFAULT_METRIC_POLICY } from '@/lib/domain/metrics';
@@ -921,5 +923,144 @@ describe('LinkedIn prospects', () => {
       );
       expect(String(error), bad).toMatch(/LinkedIn|valid|profile|protocol/i);
     }
+  });
+});
+
+describe('the standalone LinkedIn track', () => {
+  it('logs a connection with no club at all, and counts it once', async () => {
+    const week1 = programWeek(cohort, 1);
+    const url = `https://www.linkedin.com/in/standalone-${tag()}`;
+
+    const before = await asUser(internA, (tx) =>
+      outreachTotals(tx, {
+        actorUserId: internA,
+        range: week1.range,
+        policy: DEFAULT_METRIC_POLICY,
+      }),
+    );
+
+    const logged = await asUser(internA, (tx) =>
+      logLinkedInConnection(tx, {
+        actorUserId: internA,
+        fullName: 'Standalone Sam',
+        profileUrl: url,
+        notes: 'Met at the regional tournament.',
+        occurredAt: OCCURRED,
+      }),
+    );
+    expect(logged.status).toBe('logged');
+
+    const after = await asUser(internA, (tx) =>
+      outreachTotals(tx, {
+        actorUserId: internA,
+        range: week1.range,
+        policy: DEFAULT_METRIC_POLICY,
+      }),
+    );
+    expect(after.linkedinRequests).toBe(before.linkedinRequests + 1);
+
+    // No organization, and no row in the club-outreach timeline.
+    const [row] = await asSystem(
+      (tx) => tx<{ organization_id: string | null }[]>`
+        SELECT organization_id FROM linkedin_prospects
+        WHERE id = ${logged.status === 'logged' ? logged.prospectId : ''}`,
+    );
+    expect(row?.organization_id).toBeNull();
+  });
+
+  it('reports a profile already logged instead of counting it twice', async () => {
+    const week1 = programWeek(cohort, 1);
+    const url = `https://www.linkedin.com/in/repeat-${tag()}`;
+
+    await asUser(internA, (tx) =>
+      logLinkedInConnection(tx, {
+        actorUserId: internA,
+        fullName: 'Repeat Robin',
+        profileUrl: url,
+        occurredAt: OCCURRED,
+      }),
+    );
+    const after = await asUser(internA, (tx) =>
+      outreachTotals(tx, {
+        actorUserId: internA,
+        range: week1.range,
+        policy: DEFAULT_METRIC_POLICY,
+      }),
+    );
+
+    const again = await asUser(internA, (tx) =>
+      logLinkedInConnection(tx, {
+        actorUserId: internA,
+        // Same profile, different casing and a tracking parameter.
+        fullName: 'Repeat Robin',
+        profileUrl: `${url.toUpperCase()}/?utm_source=share`,
+        occurredAt: OCCURRED,
+      }),
+    );
+    expect(again.status).toBe('already_logged');
+
+    const unchanged = await asUser(internA, (tx) =>
+      outreachTotals(tx, {
+        actorUserId: internA,
+        range: week1.range,
+        policy: DEFAULT_METRIC_POLICY,
+      }),
+    );
+    expect(unchanged.linkedinRequests).toBe(after.linkedinRequests);
+  });
+
+  it('tells another intern the profile is taken, and nothing about who has it', async () => {
+    const url = `https://www.linkedin.com/in/contested-${tag()}`;
+    await asUser(internA, (tx) =>
+      logLinkedInConnection(tx, {
+        actorUserId: internA,
+        fullName: 'Contested Casey',
+        profileUrl: url,
+        notes: 'Private note that must not leak.',
+        occurredAt: OCCURRED,
+      }),
+    );
+
+    const other = await asUser(internB, (tx) =>
+      logLinkedInConnection(tx, {
+        actorUserId: internB,
+        fullName: 'Contested Casey',
+        profileUrl: url,
+        occurredAt: OCCURRED,
+      }),
+    );
+    expect(other.status).toBe('collision');
+    expect(JSON.stringify(other)).not.toMatch(/private note/i);
+  });
+
+  it('lets the owner edit notes, and nobody else', async () => {
+    const url = `https://www.linkedin.com/in/notes-${tag()}`;
+    const logged = await asUser(internA, (tx) =>
+      logLinkedInConnection(tx, {
+        actorUserId: internA,
+        fullName: 'Notes Nora',
+        profileUrl: url,
+        notes: 'First pass.',
+        occurredAt: OCCURRED,
+      }),
+    );
+    const prospectId = logged.status === 'logged' ? logged.prospectId : '';
+
+    await asUser(internA, (tx) =>
+      updateProspectNotes(tx, { actorUserId: internA, prospectId, notes: 'Second pass.' }),
+    );
+
+    const [row] = await asSystem(
+      (tx) => tx<{ notes: string | null }[]>`
+        SELECT notes FROM linkedin_prospects WHERE id = ${prospectId}`,
+    );
+    expect(row?.notes).toBe('Second pass.');
+
+    const error = await expectRejection(
+      asUser(internB, (tx) =>
+        updateProspectNotes(tx, { actorUserId: internB, prospectId, notes: 'Not mine.' }),
+      ),
+    );
+    expect(String(error)).toMatch(/not one of yours/i);
   });
 });

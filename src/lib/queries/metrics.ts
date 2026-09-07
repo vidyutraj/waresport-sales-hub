@@ -39,6 +39,35 @@ const EMPTY_TOTALS: OutreachTotals = {
 };
 
 /**
+ * Connections logged on the standalone LinkedIn track.
+ *
+ * LinkedIn is no longer recorded in `activity_events`: that table is the
+ * club-outreach record and every row there belongs to an organization, while a
+ * LinkedIn connection belongs to nobody's club. The countable unit is the
+ * connection event on the prospect's own timeline, one per profile.
+ *
+ * `request_sent` is the event both the current one-step flow and the earlier
+ * two-step one record for the intern's own action, so historical weeks keep
+ * their totals. `connected` is the other side accepting and never counts.
+ */
+async function linkedinConnectionsByActor(
+  tx: Tx,
+  input: { actorUserIds: readonly string[]; range: HalfOpenRange },
+): Promise<Map<string, number>> {
+  if (input.actorUserIds.length === 0) return new Map();
+  const rows = await tx<{ actor_user_id: string; connections: string }[]>`
+    SELECT actor_user_id, count(*)::text AS connections
+    FROM prospect_events
+    WHERE actor_user_id = ANY(${input.actorUserIds as string[]}::uuid[])
+      AND event_type = 'request_sent'
+      AND voided_at IS NULL
+      AND occurred_at >= ${input.range.start}
+      AND occurred_at <  ${input.range.end}
+    GROUP BY actor_user_id`;
+  return new Map(rows.map((r) => [r.actor_user_id, Number(r.connections)]));
+}
+
+/**
  * Outreach volume for one actor in one half-open instant range.
  *
  * `policy` decides whether follow-up emails count toward the email target and
@@ -53,7 +82,6 @@ export async function outreachTotals(
   const [row] = await tx<
     {
       emails: string;
-      linkedin_requests: string;
       first_touches: string;
       follow_ups: string;
       phone_calls: string;
@@ -66,11 +94,6 @@ export async function outreachTotals(
         WHERE action_type = 'email_initial'
            OR (action_type = 'email_followup' AND ${policy.emailCountsFollowups})
       ) AS emails,
-      count(*) FILTER (
-        WHERE action_type = 'linkedin_connection_request'
-           OR (action_type IN ('linkedin_message', 'linkedin_followup')
-               AND NOT ${policy.linkedinCountsFirstRequestOnly})
-      ) AS linkedin_requests,
       count(*) FILTER (
         WHERE action_type IN ('email_initial', 'linkedin_connection_request')
       ) AS first_touches,
@@ -88,11 +111,17 @@ export async function outreachTotals(
       AND occurred_at >= ${range.start}
       AND occurred_at <  ${range.end}`;
 
-  if (row === undefined) return EMPTY_TOTALS;
+  const linkedin =
+    (await linkedinConnectionsByActor(tx, { actorUserIds: [actorUserId], range })).get(
+      actorUserId,
+    ) ?? 0;
+
+  if (row === undefined) return { ...EMPTY_TOTALS, linkedinRequests: linkedin };
   return {
     emails: Number(row.emails),
-    linkedinRequests: Number(row.linkedin_requests),
-    firstTouches: Number(row.first_touches),
+    linkedinRequests: linkedin,
+    // A LinkedIn connection is a first touch too, and it is counted separately.
+    firstTouches: Number(row.first_touches) + linkedin,
     followUps: Number(row.follow_ups),
     phoneCalls: Number(row.phone_calls),
     researchNotes: Number(row.research_notes),
@@ -110,7 +139,6 @@ export async function outreachTotalsByActor(
     {
       actor_user_id: string;
       emails: string;
-      linkedin_requests: string;
       first_touches: string;
       follow_ups: string;
       phone_calls: string;
@@ -123,11 +151,6 @@ export async function outreachTotalsByActor(
         WHERE action_type = 'email_initial'
            OR (action_type = 'email_followup' AND ${input.policy.emailCountsFollowups})
       ) AS emails,
-      count(*) FILTER (
-        WHERE action_type = 'linkedin_connection_request'
-           OR (action_type IN ('linkedin_message', 'linkedin_followup')
-               AND NOT ${input.policy.linkedinCountsFirstRequestOnly})
-      ) AS linkedin_requests,
       count(*) FILTER (WHERE action_type IN ('email_initial', 'linkedin_connection_request')) AS first_touches,
       count(*) FILTER (WHERE action_type IN ('email_followup', 'linkedin_message', 'linkedin_followup')) AS follow_ups,
       count(*) FILTER (WHERE action_type = 'phone_call') AS phone_calls,
@@ -140,13 +163,22 @@ export async function outreachTotalsByActor(
       AND occurred_at <  ${input.range.end}
     GROUP BY actor_user_id`;
 
+  const linkedin = await linkedinConnectionsByActor(tx, {
+    actorUserIds: input.actorUserIds,
+    range: input.range,
+  });
+
   const out = new Map<string, OutreachTotals>();
-  for (const id of input.actorUserIds) out.set(id, EMPTY_TOTALS);
+  for (const id of input.actorUserIds) {
+    const connections = linkedin.get(id) ?? 0;
+    out.set(id, { ...EMPTY_TOTALS, linkedinRequests: connections, firstTouches: connections });
+  }
   for (const row of rows) {
+    const connections = linkedin.get(row.actor_user_id) ?? 0;
     out.set(row.actor_user_id, {
       emails: Number(row.emails),
-      linkedinRequests: Number(row.linkedin_requests),
-      firstTouches: Number(row.first_touches),
+      linkedinRequests: connections,
+      firstTouches: Number(row.first_touches) + connections,
       followUps: Number(row.follow_ups),
       phoneCalls: Number(row.phone_calls),
       researchNotes: Number(row.research_notes),

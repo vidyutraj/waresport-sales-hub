@@ -290,7 +290,7 @@ export default async function OverviewPage() {
         <div className="grid gap-5">
           <Card>
             <CardHeader
-              title="LinkedIn prospects"
+              title="Recent LinkedIn connections"
               actions={
                 <LinkButton href="/linkedin" size="sm">
                   Open
@@ -299,8 +299,8 @@ export default async function OverviewPage() {
             />
             {prospects.length === 0 ? (
               <EmptyState
-                title="No prospects yet"
-                description="Research decision-makers and add them here before sending a request."
+                title="No connections yet"
+                description="Connect with someone on LinkedIn, then log them under LinkedIn."
               />
             ) : (
               <ul className="divide-y divide-ink-100">
@@ -308,7 +308,9 @@ export default async function OverviewPage() {
                   <li key={p.id} className="flex items-start justify-between gap-2 px-4 py-2.5">
                     <div className="min-w-0">
                       <p className="truncate text-[13px] font-medium text-ink-900">{p.fullName}</p>
-                      <p className="truncate text-[12px] text-ink-500">{p.organizationName}</p>
+                      <p className="truncate text-[12px] text-ink-500">
+                        {p.organizationName ?? p.profileUrl}
+                      </p>
                     </div>
                     <Badge tone="neutral">{p.status.replace(/_/g, ' ')}</Badge>
                   </li>

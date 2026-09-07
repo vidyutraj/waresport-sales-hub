@@ -2,164 +2,129 @@ import { expect, test, type Page } from '@playwright/test';
 import { INTERN_A, INTERN_B, signIn, statValue } from './helpers';
 
 /**
- * Acceptance flow 4: an intern adds a LinkedIn prospect, records a request,
- * adds later messages, and gets accurate *separate* counters. Duplicate and
- * unsafe URLs are handled without leaking another intern's work.
+ * Acceptance flow 4: the LinkedIn track.
+ *
+ * Interns work LinkedIn with Premium — they connect and message in one motion —
+ * so the app records one thing: who they connected with. No club to pick, no
+ * second step, and a profile counts exactly once however often they message it.
  */
 
 test.describe.configure({ mode: 'serial' });
 
 const PROFILE = 'https://www.linkedin.com/in/pat-director-waresport';
 
-/** Reads one of the counter tiles on the LinkedIn page. */
 async function counter(page: Page, label: string): Promise<number> {
   return statValue(page, label);
 }
 
-test('an unsafe or non-profile LinkedIn URL is rejected', async ({ page }) => {
+test('an unsafe or non-profile LinkedIn link is rejected', async ({ page }) => {
   await signIn(page, INTERN_A);
   await page.goto('/linkedin');
-  // Pick a club first, so the URL itself is what is being judged.
-  await page.locator('#organizationId').selectOption({ index: 1 });
 
   for (const [url, expected] of [
     ['https://linkedin.com.evil.example/in/someone', /not a LinkedIn domain/i],
     ['https://www.linkedin.com/company/waresport', /personal profile link/i],
     ['javascript:alert(1)', /unsupported link protocol/i],
   ] as const) {
-    await page.getByLabel('Full name').fill('Mallory Test');
-    await page.getByLabel('LinkedIn profile URL').fill(url);
-    await page.getByRole('button', { name: /add prospect/i }).click();
+    await page.locator('#connection-name').fill('Mallory Test');
+    await page.locator('#connection-url').fill(url);
+    await page.getByRole('button', { name: /log connection/i }).click();
     await expect(page.getByText(expected)).toBeVisible();
   }
 });
 
-test('adding a prospect is research, not outreach', async ({ page }) => {
+test('logging a connection takes a name, a link and nothing else', async ({ page }) => {
   await signIn(page, INTERN_A);
   await page.goto('/linkedin');
 
-  const requestsBefore = await counter(page, 'Requests sent');
+  // The old flow made them attach every prospect to one of their clubs.
+  await expect(page.locator('#organizationId')).toHaveCount(0);
 
-  await page.locator('#organizationId').selectOption({ index: 1 });
-  await page.getByLabel('Full name').fill('Pat Director');
-  await page.getByLabel('Title').fill('Club President');
-  await page.getByLabel('LinkedIn profile URL').fill(PROFILE);
-  await page.getByRole('button', { name: /add prospect/i }).click();
+  const before = await counter(page, 'Connections this week');
 
-  await expect(page.getByText(/does not count as outreach yet/i)).toBeVisible();
-  await expect(page.getByRole('cell', { name: /pat director/i })).toBeVisible();
+  await page.locator('#connection-name').fill('Pat Director');
+  await page.locator('#connection-url').fill(PROFILE);
+  await page
+    .locator('#connection-notes')
+    .fill('Runs the 12U program. Asked me to follow up in May.');
+  await page.getByRole('button', { name: /log connection/i }).click();
+
+  await expect(page.getByText(/counts toward this week/i)).toBeVisible();
+  await expect(page.getByText('Pat Director', { exact: true })).toBeVisible();
+  await expect(page.getByText(/runs the 12u program/i)).toBeVisible();
 
   await page.reload();
-  expect(await counter(page, 'Requests sent')).toBe(requestsBefore);
-  expect(await counter(page, 'Prospects tracked')).toBeGreaterThan(0);
+  expect(await counter(page, 'Connections this week')).toBe(before + 1);
 });
 
-test('the same profile cannot be added twice, whatever its casing', async ({ page }) => {
+test('the same profile cannot be logged twice, whatever its casing', async ({ page }) => {
   await signIn(page, INTERN_A);
   await page.goto('/linkedin');
-  const tracked = await counter(page, 'Prospects tracked');
+  const before = await counter(page, 'Connections this week');
 
-  await page.locator('#organizationId').selectOption({ index: 1 });
-  await page.getByLabel('Full name').fill('Pat Director');
+  await page.locator('#connection-name').fill('Pat Director');
   // Different casing, a tracking parameter and a trailing slash: same profile.
   await page
-    .getByLabel('LinkedIn profile URL')
+    .locator('#connection-url')
     .fill('HTTPS://www.linkedin.com/in/Pat-Director-Waresport/?utm_source=share&trk=x');
-  await page.getByRole('button', { name: /add prospect/i }).click();
+  await page.getByRole('button', { name: /log connection/i }).click();
 
-  await expect(page.getByText(/already track that profile/i)).toBeVisible();
+  await expect(page.getByText(/already in your list/i)).toBeVisible();
+
   await page.reload();
-  expect(await counter(page, 'Prospects tracked')).toBe(tracked);
+  expect(await counter(page, 'Connections this week')).toBe(before);
 });
 
-test('recording a request counts once, and only once', async ({ page }) => {
+test('notes can be edited afterwards', async ({ page }) => {
   await signIn(page, INTERN_A);
   await page.goto('/linkedin');
-  const before = await counter(page, 'Requests sent');
-
-  await page.getByRole('button', { name: 'Request sent' }).first().click();
-  await expect(page.getByText(/counts once toward this week/i)).toBeVisible();
-
-  await page.reload();
-  expect(await counter(page, 'Requests sent')).toBe(before + 1);
-
-  // The control is gone, because a second request cannot count.
-  const row = page.getByRole('row').filter({ hasText: 'Pat Director' });
-  await expect(row.getByRole('button', { name: 'Request sent' })).toHaveCount(0);
-});
-
-test('acceptance and messages are separate, non-counting events', async ({ page }) => {
-  await signIn(page, INTERN_A);
-  await page.goto('/linkedin');
-  const requestsBefore = await counter(page, 'Requests sent');
-  const messagesBefore = await counter(page, 'Messages sent');
-
-  const row = page.getByRole('row').filter({ hasText: 'Pat Director' });
-  await row.getByRole('button', { name: 'Accepted' }).click();
-  await expect(page.getByText(/accepting a connection is not outreach/i)).toBeVisible();
-
-  await page.reload();
-  expect(await counter(page, 'Requests sent')).toBe(requestsBefore);
 
   await page
-    .getByRole('row')
-    .filter({ hasText: 'Pat Director' })
-    .getByRole('button', { name: 'Message sent' })
+    .getByRole('button', { name: /edit notes/i })
+    .first()
     .click();
-  await expect(page.getByText(/does not count again toward the request target/i)).toBeVisible();
+  await page.getByRole('textbox').last().fill('Replied — sending the deck Monday.');
+  await page.getByRole('button', { name: /save notes/i }).click();
 
+  await expect(page.getByText(/notes saved/i)).toBeVisible();
   await page.reload();
-  expect(await counter(page, 'Requests sent')).toBe(requestsBefore);
-  expect(await counter(page, 'Messages sent')).toBe(messagesBefore + 1);
+  await expect(page.getByText(/sending the deck monday/i)).toBeVisible();
 });
 
-test('the weekly LinkedIn counter on the overview matches', async ({ page }) => {
+test('the weekly counter on the overview matches', async ({ page }) => {
   await signIn(page, INTERN_A);
   await page.goto('/linkedin');
-  const requests = await counter(page, 'Requests sent');
+  const connections = await counter(page, 'Connections this week');
 
   await page.goto('/overview');
   const meter = page.getByText('LinkedIn requests sent').locator('xpath=../..');
-  await expect(meter).toContainText(String(requests));
+  await expect(meter).toContainText(String(connections));
 });
 
 test('another intern is told the profile is taken, and nothing more', async ({ page }) => {
   await signIn(page, INTERN_B);
   await page.goto('/linkedin');
 
-  // Wes researches his own organization, then tries the same profile.
-  await page.getByLabel('A new organization I researched').check();
-  await page.getByLabel('Organization name').fill('Tacoma Volleyball Club');
-  await page.getByLabel('City').fill('Tacoma');
-  await page.getByLabel('State').fill('WA');
-  await page.getByLabel('Full name').fill('Pat Director');
-  await page.getByLabel('LinkedIn profile URL').fill(PROFILE);
-  await page.getByRole('button', { name: /add prospect/i }).click();
+  await page.locator('#connection-name').fill('Pat Director');
+  await page.locator('#connection-url').fill(PROFILE);
+  await page.getByRole('button', { name: /log connection/i }).click();
 
-  const notice = page.getByText(/already being tracked by someone else/i);
-  await expect(notice).toBeVisible();
-  // The notice names no intern, no club and no notes.
-  await expect(page.getByText(/erin/i)).toHaveCount(0);
+  await expect(page.getByText(/someone else is already working this profile/i)).toBeVisible();
+  // The notice names no intern, no club and no notes. Word-bounded: the page
+  // copy contains "remembering", which a bare /erin/ would match.
+  await expect(page.getByText(/\berin\b/i)).toHaveCount(0);
+  await expect(page.getByText(/12u program/i)).toHaveCount(0);
 });
 
-test('an intern can research and claim a new organization', async ({ page }) => {
+test("one intern's connections are invisible to another", async ({ page }) => {
   await signIn(page, INTERN_B);
   await page.goto('/linkedin');
 
-  await page.getByLabel('A new organization I researched').check();
-  await page.getByLabel('Organization name').fill('Bellevue Gymnastics Academy');
-  await page.getByLabel('City').fill('Bellevue');
-  await page.getByLabel('State').fill('WA');
-  await page.getByLabel('Sport').fill('Gymnastics');
-  await page.getByLabel('Full name').fill('Robin Coach');
-  await page
-    .getByLabel('LinkedIn profile URL')
-    .fill('https://www.linkedin.com/in/robin-coach-bellevue');
-  await page.getByRole('button', { name: /add prospect/i }).click();
+  await page.locator('#connection-name').fill('Robin Coach');
+  await page.locator('#connection-url').fill('https://www.linkedin.com/in/robin-coach-bellevue');
+  await page.getByRole('button', { name: /log connection/i }).click();
+  await expect(page.getByText(/counts toward this week/i)).toBeVisible();
 
-  await expect(page.getByText(/prospect added/i)).toBeVisible();
-
-  // The club he researched is now his, and appears in My Leads.
-  await page.goto('/leads');
-  await expect(page.getByRole('cell', { name: /bellevue gymnastics academy/i })).toBeVisible();
+  await expect(page.getByText('Robin Coach', { exact: true })).toBeVisible();
+  await expect(page.getByText('Pat Director', { exact: true })).toHaveCount(0);
 });

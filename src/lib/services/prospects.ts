@@ -56,7 +56,8 @@ export const PROSPECT_STATUS_LABELS: Record<ProspectStatus, string> = {
 
 export type CreateProspectInput = {
   actorUserId: string;
-  organizationId: string;
+  /** Null on the standalone LinkedIn track, which is not tied to a club. */
+  organizationId?: string | null;
   fullName: string;
   profileUrl: string;
   title?: string | null;
@@ -98,7 +99,7 @@ export async function createProspect(
         organization_id, created_by, full_name, title, profile_url, profile_url_raw,
         profile_key, linkedin_public_id, territory_id, sport, email, notes
       ) VALUES (
-        ${input.organizationId}, ${input.actorUserId}, ${fullName},
+        ${input.organizationId ?? null}, ${input.actorUserId}, ${fullName},
         ${normalizeText(input.title ?? null)}, ${analysis.url}, ${analysis.raw},
         ${analysis.key}, ${analysis.publicId}, ${input.territoryId ?? null},
         ${normalizeText(input.sport ?? null)}, ${normalizeEmail(input.email ?? null)},
@@ -190,6 +191,92 @@ export async function recordConnectionRequest(
 }
 
 /**
+ * Log a LinkedIn connection: the whole intern-facing flow, in one call.
+ *
+ * Interns work LinkedIn with Premium, where connecting and messaging are one
+ * motion, so splitting it into "research a prospect" then "record the request"
+ * asked them to do bookkeeping the app can infer. One entry per person is the
+ * unit that matters, and it is what counts toward the weekly target.
+ *
+ * Idempotent per profile: logging the same person twice reports it rather than
+ * counting twice, which is the same guarantee the two-step flow had.
+ */
+export async function logLinkedInConnection(
+  tx: Tx,
+  input: {
+    actorUserId: string;
+    fullName: string;
+    profileUrl: string;
+    notes?: string | null;
+    occurredAt?: Date;
+  },
+): Promise<
+  | { status: 'logged'; prospectId: string }
+  | { status: 'already_logged'; prospectId: string }
+  | { status: 'collision'; profileUrl: string }
+> {
+  const created = await createProspect(tx, {
+    actorUserId: input.actorUserId,
+    organizationId: null,
+    fullName: input.fullName,
+    profileUrl: input.profileUrl,
+    notes: input.notes ?? null,
+  });
+
+  if (created.status === 'collision') return created;
+  if (created.status === 'already_yours') {
+    return { status: 'already_logged', prospectId: created.prospectId };
+  }
+
+  const occurredAt = input.occurredAt ?? new Date();
+
+  // The countable unit lives on the prospect's own timeline. It is deliberately
+  // not an activity_events row: that table is the club-outreach record, and
+  // every row there belongs to an organization.
+  //
+  // `request_sent` is the event type that has always meant "the intern did the
+  // outreach", and it is the only one the weekly target counts. `connected`
+  // means the other side accepted, which is not the intern's doing and has
+  // never counted — so the status moves to connected while the countable event
+  // stays request_sent.
+  await tx`
+    INSERT INTO prospect_events (prospect_id, actor_user_id, event_type, occurred_at, notes)
+    VALUES (${created.prospectId}, ${input.actorUserId}, 'request_sent', ${occurredAt},
+            ${normalizeText(input.notes ?? null)})`;
+
+  await tx`
+    UPDATE linkedin_prospects SET status = 'connected' WHERE id = ${created.prospectId}`;
+
+  return { status: 'logged', prospectId: created.prospectId };
+}
+
+/**
+ * Replace the notes on a connection.
+ *
+ * Notes are working memory — what was said, what to follow up on — so unlike
+ * logged outreach they are editable. Each edit still leaves a dated note event,
+ * so the history of what was known when is not lost.
+ */
+export async function updateProspectNotes(
+  tx: Tx,
+  input: { actorUserId: string; prospectId: string; notes: string | null },
+): Promise<void> {
+  const notes = normalizeText(input.notes);
+  const [updated] = await tx<{ id: string }[]>`
+    UPDATE linkedin_prospects SET notes = ${notes}
+    WHERE id = ${input.prospectId} AND created_by = ${input.actorUserId}
+    RETURNING id`;
+
+  if (updated === undefined) {
+    throw new ProspectError('That connection is not one of yours.', 'not_found');
+  }
+
+  await tx`
+    INSERT INTO prospect_events (prospect_id, actor_user_id, event_type, notes)
+    VALUES (${input.prospectId}, ${input.actorUserId}, 'note', ${notes})`;
+}
+
+/**
  * Later lifecycle events. An accepted connection is not outreach; a message
  * sent after connecting is logged as outreach but, under the default metric
  * policy, does not count a second time toward the request target.
@@ -261,8 +348,9 @@ export type ProspectRow = {
   fullName: string;
   title: string | null;
   profileUrl: string;
-  organizationId: string;
-  organizationName: string;
+  /** Null on the standalone LinkedIn track. */
+  organizationId: string | null;
+  organizationName: string | null;
   status: ProspectStatus;
   sport: string | null;
   email: string | null;
@@ -284,8 +372,8 @@ export async function listProspects(
       full_name: string;
       title: string | null;
       profile_url: string;
-      organization_id: string;
-      organization_name: string;
+      organization_id: string | null;
+      organization_name: string | null;
       status: ProspectStatus;
       sport: string | null;
       email: string | null;
@@ -306,7 +394,7 @@ export async function listProspects(
            (SELECT count(*) FROM prospect_events e
              WHERE e.prospect_id = p.id AND e.event_type = 'message_sent' AND e.voided_at IS NULL)::text AS messages_sent
     FROM linkedin_prospects p
-    JOIN organizations o ON o.id = p.organization_id
+    LEFT JOIN organizations o ON o.id = p.organization_id
     WHERE p.is_archived = false
       AND (${input.createdBy ?? null}::uuid IS NULL OR p.created_by = ${input.createdBy ?? null})
       AND (${input.organizationId ?? null}::uuid IS NULL OR p.organization_id = ${input.organizationId ?? null})
