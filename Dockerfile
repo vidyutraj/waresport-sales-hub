@@ -55,7 +55,9 @@ RUN addgroup --system --gid 1001 nodejs \
 # `output: 'standalone'` emits a server bundle with only the modules it uses.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+# No public/ directory: this app ships no static assets outside the build
+# output. Add a COPY for it here if that ever changes — a missing source path
+# is a hard build failure, not a skipped step.
 
 # Migrations run as a release step (`node scripts/migrate.mjs`), not at boot:
 # two instances starting at once must not race each other through the schema.
