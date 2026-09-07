@@ -1,0 +1,54 @@
+# Fly.io deployment for the Waresport Sales Hub.
+#
+# Secrets are never written here — set them once with `fly secrets set`, which
+# stores them encrypted and injects them at boot:
+#
+#   fly secrets set AUTH_SECRET="$(openssl rand -base64 48)" \
+#     APP_URL="https://waresportsales.fly.dev" \
+#     APP_DATABASE_URL="postgres://waresport_app:...@<db>.internal:5432/waresport_sales"
+#
+# DATABASE_URL is attached automatically by `fly postgres attach`.
+
+app = 'waresportsales'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[deploy]
+  # Runs once per deploy, before the new machines take traffic, so two
+  # instances can never race each other through the schema.
+  release_command = 'node scripts/migrate.mjs'
+  strategy = 'rolling'
+
+[env]
+  NODE_ENV = 'production'
+  PORT = '3000'
+  STORAGE_DIR = '/data/storage'
+
+[http_service]
+  internal_port = 3000
+  # Every request is redirected to HTTPS: session cookies are Secure and
+  # __Host- prefixed, so plain HTTP would simply not carry a session.
+  force_https = true
+  auto_stop_machines = 'suspend'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '20s'
+    method = 'GET'
+    path = '/api/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '1gb'
+
+# Uploaded resource documents. Without this volume they would vanish on the
+# next deploy, like anything else on a container filesystem.
+[[mounts]]
+  source = 'waresport_storage'
+  destination = '/data'
+  initial_size = '1gb'

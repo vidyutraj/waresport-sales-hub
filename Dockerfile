@@ -57,10 +57,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
-# Migrations run as a release step (`npm run db:migrate`), not at boot: two
-# instances starting at once must not race each other through the schema.
+# Migrations run as a release step (`node scripts/migrate.mjs`), not at boot:
+# two instances starting at once must not race each other through the schema.
+# The runner is plain ESM and uses `postgres`, which the standalone bundle
+# already carries, so the image needs no TypeScript loader and no dev deps.
 COPY --from=builder --chown=nextjs:nodejs /app/db ./db
-COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/migrate.mjs ./scripts/migrate.mjs
 
 USER nextjs
 EXPOSE 3000

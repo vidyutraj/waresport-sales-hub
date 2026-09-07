@@ -14,7 +14,7 @@
     "db:up": "bash scripts/db-up.sh",
     "db:down": "docker compose down",
     "db:reset": "bash scripts/db-reset.sh",
-    "db:migrate": "tsx scripts/migrate.ts",
+    "db:migrate": "node scripts/migrate.mjs",
     "db:seed": "tsx scripts/seed.ts",
     "user:create": "tsx scripts/create-user.ts",
     "user:set-password": "tsx scripts/set-password.ts",

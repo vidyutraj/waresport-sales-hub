@@ -1,12 +1,35 @@
-import './_bootstrap-env';
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 
+/**
+ * Migration runner.
+ *
+ * Plain ESM with one dependency — `postgres`, which the application already
+ * bundles — so the exact same runner works locally and inside the production
+ * image, where there is no TypeScript loader and no dev dependencies. Two
+ * runners would eventually disagree about what "migrated" means.
+ *
+ * Local runs pick up .env.local / .env when dotenv is installed; a deployment
+ * gets its configuration from the platform.
+ */
+
 const MIGRATIONS_DIR = resolve(process.cwd(), 'db/migrations');
 
+async function loadLocalEnvIfPresent() {
+  try {
+    const { config } = await import('dotenv');
+    config({ path: resolve(process.cwd(), '.env.local'), quiet: true });
+    config({ path: resolve(process.cwd(), '.env'), quiet: true });
+  } catch {
+    // Not installed in production images. The platform supplies the environment.
+  }
+}
+
 async function main() {
+  await loadLocalEnvIfPresent();
+
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
   const sql = postgres(url, { max: 1, onnotice: () => {} });
@@ -20,11 +43,7 @@ async function main() {
       )`;
 
     const applied = new Map(
-      (
-        await sql<
-          { name: string; checksum: string }[]
-        >`SELECT name, checksum FROM schema_migrations`
-      ).map((r) => [r.name, r.checksum]),
+      (await sql`SELECT name, checksum FROM schema_migrations`).map((r) => [r.name, r.checksum]),
     );
 
     const files = readdirSync(MIGRATIONS_DIR)
@@ -60,7 +79,7 @@ async function main() {
   }
 }
 
-main().catch((error: unknown) => {
+main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });
