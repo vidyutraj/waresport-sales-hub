@@ -90,6 +90,11 @@ export async function listPeople(
     LEFT JOIN territories t ON t.id = m.territory_id
     WHERE (${input.role ?? null}::text IS NULL OR u.role::text = ${input.role ?? null})
       AND (${input.cohortId ?? null}::uuid IS NULL OR m.cohort_id = ${input.cohortId ?? null})
+      -- Retired placeholders: accounts that could not be deleted (their audit
+      -- rows are append-only) and were moved onto the reserved .invalid domain
+      -- to free the real address. They are not people, so they are not listed.
+      -- A genuinely deactivated account keeps its real email and stays visible.
+      AND u.email::text NOT LIKE '%@%.invalid'
     ORDER BY
       CASE u.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END,
       coalesce(u.full_name, u.email::text)`;
