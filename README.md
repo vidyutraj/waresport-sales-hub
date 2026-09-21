@@ -19,12 +19,12 @@ an administrator uses to run the internship described in
 **For an intern**
 
 - See the current program week, its date range, and the East/West assignment.
-- Track emails and LinkedIn requests against the weekly target, with remaining
-  counts and a suggested daily pace.
+- Track emails against the weekly target, with remaining counts and a suggested
+  daily pace.
+- Log LinkedIn connections as people accept. This is a running count with no
+  target.
 - Work assigned clubs: copy contact details, send from your own Waresport
   mailbox or LinkedIn, then log what you actually sent.
-- Keep a LinkedIn prospect tracker with separate counters for requests,
-  acceptances and messages.
 - Manage a follow-up queue (overdue, due today, upcoming, snoozed, completed).
 - Book meetings, submit them as held, and watch $100 milestones accumulate.
 - Complete training items, project submissions and the end-of-program reflection.
@@ -163,8 +163,9 @@ To start over: `npm run db:reset` (drops the volume, re-migrates, re-seeds).
 5. Send the message **from your own Waresport mailbox or LinkedIn**, then come
    back and press **Log it**. Only what you log counts — copying an address or
    drafting a message does not.
-6. **LinkedIn** — add a researched prospect (research, not outreach), then
-   record the request once you have actually sent it. It counts once per profile.
+6. **LinkedIn**: when someone accepts your connection request, log their name
+   and profile link. There is no target. Keep adding people as they accept.
+   Each profile counts once.
 7. **Follow-ups** — everything you scheduled, grouped by when it is due.
 8. **Meetings & Earnings** — book a meeting, mark it held once it happens, and
    an admin verifies it. Every 10 verified meetings is $100, cumulative across

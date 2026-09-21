@@ -112,9 +112,9 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
               definition={METRIC_DEFINITIONS.emails}
             />
             <StatTile
-              label="LinkedIn requests (period)"
-              value={dashboard.totals.linkedinRequests}
-              definition={METRIC_DEFINITIONS.linkedinRequests}
+              label="LinkedIn connections (period)"
+              value={dashboard.totals.linkedinConnections}
+              definition={METRIC_DEFINITIONS.linkedinConnections}
             />
             <StatTile
               label="Awaiting verification"
@@ -220,10 +220,7 @@ export default async function AdminOverviewPage({ searchParams }: { searchParams
                         />
                       </Td>
                       <Td>
-                        <GoalCell
-                          achieved={i.totals.linkedinRequests}
-                          target={i.target?.linkedinTarget ?? null}
-                        />
+                        <span className="tabular">{i.totals.linkedinConnections}</span>
                       </Td>
                       <Td numeric>
                         {i.assignedOrganizations}

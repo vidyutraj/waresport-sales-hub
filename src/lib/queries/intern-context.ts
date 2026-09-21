@@ -94,7 +94,6 @@ export type InternDashboard = {
   pipeline: PipelineSummary;
   compensation: CompensationDetail | null;
   emailPace: number | null;
-  linkedinPace: number | null;
   workingDaysRemaining: number;
 };
 
@@ -139,13 +138,6 @@ export async function loadInternDashboard(
         ? suggestedRemainingPace(
             context.target.emailTarget,
             weekTotals.emails,
-            workingDaysRemaining,
-          )
-        : null,
-      linkedinPace: context.target
-        ? suggestedRemainingPace(
-            context.target.linkedinTarget,
-            weekTotals.linkedinRequests,
             workingDaysRemaining,
           )
         : null,

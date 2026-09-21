@@ -10,13 +10,12 @@ import { logLinkedInConnection, updateProspectNotes } from '@/lib/services/prosp
 /**
  * LinkedIn connection log.
  *
- * One action for the whole intern flow: they connected with someone on
- * LinkedIn and messaged them, and this records who. There is no club to pick —
- * LinkedIn is its own track — and no second step, because with Premium the
- * connect and the message happen together.
+ * One action for the whole intern flow: someone accepted their connection
+ * request, and this records who. There is no club to pick (LinkedIn is its own
+ * track) and no target: interns keep adding people as they accept.
  *
  * A profile counts once. Logging the same person again says so instead of
- * inflating the weekly number.
+ * inflating the count.
  */
 
 const connectionSchema = z.object({
@@ -49,7 +48,7 @@ export async function logConnectionAction(
 
     if (outcome.status === 'already_logged') {
       return fail(
-        `${input.fullName} is already in your list. Each profile counts once — edit their notes instead.`,
+        `${input.fullName} is already in your list. Each person counts once, so edit their notes instead.`,
         {},
         parsed.values,
       );
@@ -62,7 +61,7 @@ export async function logConnectionAction(
         parsed.values,
       );
     }
-    return ok(`${input.fullName} logged. It counts toward this week's LinkedIn target.`);
+    return ok(`${input.fullName} added to your connections.`);
   } catch (error) {
     return toFormState(error, 'Could not log that connection.');
   }

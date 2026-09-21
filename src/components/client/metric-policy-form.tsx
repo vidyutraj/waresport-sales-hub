@@ -11,7 +11,6 @@ export function MetricPolicyForm({
   cohortId: string;
   current: {
     emailCountsFollowups: boolean;
-    linkedinCountsFirstRequestOnly: boolean;
     version: number;
   };
 }) {
@@ -28,13 +27,6 @@ export function MetricPolicyForm({
             defaultChecked={current.emailCountsFollowups}
             label="Follow-up emails count toward the weekly email target"
             hint="The program guide does not settle this. Default: they do count."
-          />
-          <Checkbox
-            id="p-firstonly"
-            name="linkedinCountsFirstRequestOnly"
-            defaultChecked={current.linkedinCountsFirstRequestOnly}
-            label="Only first-time connection requests count toward the request target"
-            hint="Default: on. Messages and accepted connections are tracked separately."
           />
 
           <Field label="Note" htmlFor="p-notes" error={state.fieldErrors.notes}>

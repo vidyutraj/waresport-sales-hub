@@ -191,12 +191,10 @@ export async function recordConnectionRequest(
 }
 
 /**
- * Log a LinkedIn connection: the whole intern-facing flow, in one call.
+ * Log an accepted LinkedIn connection: the whole intern-facing flow, in one call.
  *
- * Interns work LinkedIn with Premium, where connecting and messaging are one
- * motion, so splitting it into "research a prospect" then "record the request"
- * asked them to do bookkeeping the app can infer. One entry per person is the
- * unit that matters, and it is what counts toward the weekly target.
+ * Interns log a person once that person has accepted their request. One entry
+ * per person is the unit that matters. It is a running count with no target.
  *
  * Idempotent per profile: logging the same person twice reports it rather than
  * counting twice, which is the same guarantee the two-step flow had.
@@ -234,11 +232,10 @@ export async function logLinkedInConnection(
   // not an activity_events row: that table is the club-outreach record, and
   // every row there belongs to an organization.
   //
-  // `request_sent` is the event type that has always meant "the intern did the
-  // outreach", and it is the only one the weekly target counts. `connected`
-  // means the other side accepted, which is not the intern's doing and has
-  // never counted — so the status moves to connected while the countable event
-  // stays request_sent.
+  // `request_sent` is the event the LinkedIn count reads. It is kept as the event
+  // type, even though the person has already accepted, so that connections
+  // logged before this change keep counting in the weeks they were logged. The
+  // status records the acceptance.
   await tx`
     INSERT INTO prospect_events (prospect_id, actor_user_id, event_type, occurred_at, notes)
     VALUES (${created.prospectId}, ${input.actorUserId}, 'request_sent', ${occurredAt},

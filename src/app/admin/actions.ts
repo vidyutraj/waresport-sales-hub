@@ -790,9 +790,10 @@ const targetSchema = z.object({
     .or(z.literal('').transform(() => undefined)),
   weekNumber: z.coerce.number().int().min(1).max(52),
   emailTarget: z.coerce.number().int().min(0).max(100000),
-  linkedinTarget: z.coerce.number().int().min(0).max(100000),
+  // LinkedIn has no target. The columns remain, so they are stored as zero.
+  linkedinTarget: z.coerce.number().int().min(0).max(100000).default(0),
   emailDailyPace: z.coerce.number().int().min(0).max(100000),
-  linkedinDailyPace: z.coerce.number().int().min(0).max(100000),
+  linkedinDailyPace: z.coerce.number().int().min(0).max(100000).default(0),
   reason: z.string().trim().max(300).optional(),
 });
 
@@ -828,7 +829,6 @@ export async function setTargetAction(_prev: FormState, formData: FormData): Pro
 const policySchema = z.object({
   cohortId: z.string().uuid(),
   emailCountsFollowups: z.string().optional(),
-  linkedinCountsFirstRequestOnly: z.string().optional(),
   notes: z.string().trim().max(400).optional(),
 });
 
@@ -847,7 +847,8 @@ export async function setMetricPolicyAction(
         actorRole: actor.role as 'owner' | 'admin',
         cohortId: parsed.data.cohortId,
         emailCountsFollowups: parsed.data.emailCountsFollowups === 'on',
-        linkedinCountsFirstRequestOnly: parsed.data.linkedinCountsFirstRequestOnly === 'on',
+        // Only applied to the retired request-based LinkedIn count. Kept at its default.
+        linkedinCountsFirstRequestOnly: true,
         notes: parsed.data.notes ?? null,
       }),
     );

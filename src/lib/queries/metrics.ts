@@ -20,7 +20,7 @@ import { rate, type Rate } from '@/lib/domain/program';
 
 export type OutreachTotals = {
   emails: number;
-  linkedinRequests: number;
+  linkedinConnections: number;
   firstTouches: number;
   followUps: number;
   phoneCalls: number;
@@ -30,7 +30,7 @@ export type OutreachTotals = {
 
 const EMPTY_TOTALS: OutreachTotals = {
   emails: 0,
-  linkedinRequests: 0,
+  linkedinConnections: 0,
   firstTouches: 0,
   followUps: 0,
   phoneCalls: 0,
@@ -46,9 +46,10 @@ const EMPTY_TOTALS: OutreachTotals = {
  * LinkedIn connection belongs to nobody's club. The countable unit is the
  * connection event on the prospect's own timeline, one per profile.
  *
- * `request_sent` is the event both the current one-step flow and the earlier
- * two-step one record for the intern's own action, so historical weeks keep
- * their totals. `connected` is the other side accepting and never counts.
+ * The intern logs a person once they have accepted, and that log writes the
+ * `request_sent` event (the event type the earlier two-step flow also wrote),
+ * so historical weeks keep their totals. It is shown as a plain count with no
+ * target.
  */
 async function linkedinConnectionsByActor(
   tx: Tx,
@@ -70,9 +71,8 @@ async function linkedinConnectionsByActor(
 /**
  * Outreach volume for one actor in one half-open instant range.
  *
- * `policy` decides whether follow-up emails count toward the email target and
- * whether LinkedIn messages count toward the request target, so a historical
- * week keeps the meaning it had when it was worked.
+ * `policy` decides whether follow-up emails count toward the email target, so a
+ * historical week keeps the meaning it had when it was worked.
  */
 export async function outreachTotals(
   tx: Tx,
@@ -116,10 +116,10 @@ export async function outreachTotals(
       actorUserId,
     ) ?? 0;
 
-  if (row === undefined) return { ...EMPTY_TOTALS, linkedinRequests: linkedin };
+  if (row === undefined) return { ...EMPTY_TOTALS, linkedinConnections: linkedin };
   return {
     emails: Number(row.emails),
-    linkedinRequests: linkedin,
+    linkedinConnections: linkedin,
     // A LinkedIn connection is a first touch too, and it is counted separately.
     firstTouches: Number(row.first_touches) + linkedin,
     followUps: Number(row.follow_ups),
@@ -171,13 +171,13 @@ export async function outreachTotalsByActor(
   const out = new Map<string, OutreachTotals>();
   for (const id of input.actorUserIds) {
     const connections = linkedin.get(id) ?? 0;
-    out.set(id, { ...EMPTY_TOTALS, linkedinRequests: connections, firstTouches: connections });
+    out.set(id, { ...EMPTY_TOTALS, linkedinConnections: connections, firstTouches: connections });
   }
   for (const row of rows) {
     const connections = linkedin.get(row.actor_user_id) ?? 0;
     out.set(row.actor_user_id, {
       emails: Number(row.emails),
-      linkedinRequests: connections,
+      linkedinConnections: connections,
       firstTouches: Number(row.first_touches) + connections,
       followUps: Number(row.follow_ups),
       phoneCalls: Number(row.phone_calls),

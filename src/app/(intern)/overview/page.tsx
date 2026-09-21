@@ -122,15 +122,10 @@ export default async function OverviewPage() {
             definition={METRIC_DEFINITIONS.emails}
             disabled={outsideProgram}
           />
-          <GoalMeter
-            label="LinkedIn requests sent"
-            achieved={weekTotals.linkedinRequests}
-            target={context.target?.linkedinTarget ?? 0}
-            pace={dashboard.linkedinPace}
-            paceLabel={`suggested ${context.target?.linkedinDailyPace ?? PROGRAM_DEFAULT_TARGETS.laterWeeks.linkedinPerDay}/day`}
-            daysLeft={dashboard.workingDaysRemaining}
-            definition={METRIC_DEFINITIONS.linkedinRequests}
-            disabled={outsideProgram}
+          <ConnectionCount
+            label="LinkedIn connections accepted"
+            thisWeek={weekTotals.linkedinConnections}
+            definition={METRIC_DEFINITIONS.linkedinConnections}
           />
         </CardBody>
         <div className="grid grid-cols-2 gap-px border-t border-ink-100 bg-ink-100 sm:grid-cols-3">
@@ -354,6 +349,36 @@ function targetSourceLabel(source: string): string {
   if (source === 'intern_override') return 'a target set specifically for you';
   if (source === 'cohort_default') return 'your cohort defaults';
   return 'the program guide';
+}
+
+/** LinkedIn has no weekly target: it is a running count interns keep adding to. */
+function ConnectionCount({
+  label,
+  thisWeek,
+  definition,
+}: {
+  label: string;
+  thisWeek: number;
+  definition: string;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-[13px] font-medium text-ink-700" title={definition}>
+          {label}
+        </p>
+        <p className="tabular text-[13px] text-ink-600">
+          <span className="text-lg font-semibold text-ink-900">{thisWeek}</span>
+        </p>
+      </div>
+      <p className="mt-2 text-[12px] text-ink-500">
+        No target. Keep logging people as they accept.{' '}
+        <Link href="/linkedin" className="text-brand-600 underline">
+          Log a connection
+        </Link>
+      </p>
+    </div>
+  );
 }
 
 function GoalMeter({

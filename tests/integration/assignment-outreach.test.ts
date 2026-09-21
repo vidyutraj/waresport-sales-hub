@@ -585,7 +585,7 @@ describe('activity logging rules', () => {
       }),
     );
     expect(after.emails).toBe(before.emails);
-    expect(after.linkedinRequests).toBe(before.linkedinRequests);
+    expect(after.linkedinConnections).toBe(before.linkedinConnections);
     expect(after.researchNotes).toBe(before.researchNotes + 1);
   });
 });
@@ -767,7 +767,7 @@ describe('LinkedIn prospects', () => {
         policy: DEFAULT_METRIC_POLICY,
       }),
     );
-    expect(afterRequest.linkedinRequests).toBe(afterCreate.linkedinRequests + 1);
+    expect(afterRequest.linkedinConnections).toBe(afterCreate.linkedinConnections + 1);
 
     // A second request for the same profile is rejected.
     const error = await expectRejection(
@@ -791,7 +791,7 @@ describe('LinkedIn prospects', () => {
         policy: DEFAULT_METRIC_POLICY,
       }),
     );
-    expect(stillOne.linkedinRequests).toBe(afterRequest.linkedinRequests);
+    expect(stillOne.linkedinConnections).toBe(afterRequest.linkedinConnections);
   });
 
   it('keeps acceptances and messages as separate, non-counting events', async () => {
@@ -846,7 +846,7 @@ describe('LinkedIn prospects', () => {
         policy: DEFAULT_METRIC_POLICY,
       }),
     );
-    expect(afterConnected.linkedinRequests).toBe(afterRequest.linkedinRequests);
+    expect(afterConnected.linkedinConnections).toBe(afterRequest.linkedinConnections);
 
     // A message is logged as outreach but does not count as a new request.
     await asUser(internA, (tx) =>
@@ -867,7 +867,7 @@ describe('LinkedIn prospects', () => {
         policy: DEFAULT_METRIC_POLICY,
       }),
     );
-    expect(afterMessage.linkedinRequests).toBe(afterRequest.linkedinRequests);
+    expect(afterMessage.linkedinConnections).toBe(afterRequest.linkedinConnections);
     expect(afterMessage.followUps).toBe(afterConnected.followUps + 1);
   });
 
@@ -957,7 +957,7 @@ describe('the standalone LinkedIn track', () => {
         policy: DEFAULT_METRIC_POLICY,
       }),
     );
-    expect(after.linkedinRequests).toBe(before.linkedinRequests + 1);
+    expect(after.linkedinConnections).toBe(before.linkedinConnections + 1);
 
     // No organization, and no row in the club-outreach timeline.
     const [row] = await asSystem(
@@ -1006,7 +1006,7 @@ describe('the standalone LinkedIn track', () => {
         policy: DEFAULT_METRIC_POLICY,
       }),
     );
-    expect(unchanged.linkedinRequests).toBe(after.linkedinRequests);
+    expect(unchanged.linkedinConnections).toBe(after.linkedinConnections);
   });
 
   it('tells another intern the profile is taken, and nothing about who has it', async () => {

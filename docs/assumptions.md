@@ -77,21 +77,18 @@ follow-ups and unique organizations are always displayed **separately**.
 
 ---
 
-## 4. What counts toward the weekly LinkedIn target
+## 4. How LinkedIn is counted
 
-**The guide says "LinkedIn requests / week: 100"** but does not say how
-acceptances or later messages are treated.
+**The guide says "LinkedIn requests / week: 100".**
 
-**Default decision.** Only a **first-time connection request** for a given
-profile counts, and it counts exactly once — enforced by a partial unique index
-on `activity_events`, not by application logic. An accepted connection is not
-outreach at all. A message sent after connecting is logged as outreach and
-appears in the follow-up column, but does not count again toward the request
-target.
+**Decision (overrides the guide).** LinkedIn tracks **accepted connections**,
+not requests sent, and it has **no target**. Interns log a person once that
+person accepts, and the app shows a running count for the week and in total.
+Each profile counts once, however often the intern messages them afterwards.
 
-Adding a prospect to the LinkedIn tracker is **research**, not outreach.
-
-**Configurable:** the same metric policy version as above.
+The `linkedin_target` and `linkedin_daily_pace` columns stay in the schema so
+earlier weeks remain readable. They are no longer shown or edited anywhere, and
+new targets store them as zero.
 
 ---
 

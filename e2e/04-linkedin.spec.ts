@@ -4,9 +4,8 @@ import { INTERN_A, INTERN_B, signIn, statValue } from './helpers';
 /**
  * Acceptance flow 4: the LinkedIn track.
  *
- * Interns work LinkedIn with Premium — they connect and message in one motion —
- * so the app records one thing: who they connected with. No club to pick, no
- * second step, and a profile counts exactly once however often they message it.
+ * Interns log a person once they accept a connection request. No club to pick,
+ * no target, and a profile counts exactly once however often they message it.
  */
 
 test.describe.configure({ mode: 'serial' });
@@ -49,7 +48,7 @@ test('logging a connection takes a name, a link and nothing else', async ({ page
     .fill('Runs the 12U program. Asked me to follow up in May.');
   await page.getByRole('button', { name: /log connection/i }).click();
 
-  await expect(page.getByText(/counts toward this week/i)).toBeVisible();
+  await expect(page.getByText(/pat director added to your connections/i)).toBeVisible();
   await expect(page.getByText('Pat Director', { exact: true })).toBeVisible();
   await expect(page.getByText(/runs the 12u program/i)).toBeVisible();
 
@@ -97,8 +96,11 @@ test('the weekly counter on the overview matches', async ({ page }) => {
   const connections = await counter(page, 'Connections this week');
 
   await page.goto('/overview');
-  const meter = page.getByText('LinkedIn requests sent').locator('xpath=../..');
+  const meter = page.getByText('LinkedIn connections accepted').locator('xpath=../..');
   await expect(meter).toContainText(String(connections));
+  // There is no LinkedIn target, so the overview shows no "x / y" for it.
+  await expect(meter).not.toContainText('/');
+  await expect(meter).toContainText(/no target/i);
 });
 
 test('another intern is told the profile is taken, and nothing more', async ({ page }) => {
@@ -123,7 +125,7 @@ test("one intern's connections are invisible to another", async ({ page }) => {
   await page.locator('#connection-name').fill('Robin Coach');
   await page.locator('#connection-url').fill('https://www.linkedin.com/in/robin-coach-bellevue');
   await page.getByRole('button', { name: /log connection/i }).click();
-  await expect(page.getByText(/counts toward this week/i)).toBeVisible();
+  await expect(page.getByText(/robin coach added to your connections/i)).toBeVisible();
 
   await expect(page.getByText('Robin Coach', { exact: true })).toBeVisible();
   await expect(page.getByText('Pat Director', { exact: true })).toHaveCount(0);

@@ -5,7 +5,8 @@ import { ActionForm, SubmitButton } from '@/components/client/form';
 import { Field, Input, Textarea } from '@/components/ui';
 
 /**
- * Log one LinkedIn connection: name, link, and anything worth remembering.
+ * Log one accepted LinkedIn connection: name, link, and anything worth
+ * remembering.
  *
  * Three fields on purpose. This is filled in dozens of times a week, so every
  * extra field is a tax on the person doing the actual work.
@@ -55,7 +56,7 @@ export function LogConnectionForm() {
             <Field
               label="Notes"
               htmlFor="connection-notes"
-              hint="Optional. What you said, what they do, anything to pick up next time."
+              hint="Optional. What they do, what you talked about, anything to pick up next time."
               error={state.fieldErrors.notes}
             >
               <Textarea

@@ -78,7 +78,7 @@ export type ActivityLike = {
 
 export type WeeklyMetricTotals = {
   emails: number;
-  linkedinRequests: number;
+  linkedinConnections: number;
   firstTouches: number;
   followUps: number;
   uniqueOrganizations: number;
@@ -98,7 +98,7 @@ export function summariseActivities(
   const live = activities.filter((a) => !a.voidedAt);
   const orgs = new Set<string>();
   let emails = 0;
-  let linkedinRequests = 0;
+  let linkedinConnections = 0;
   let firstTouches = 0;
   let followUps = 0;
   let phoneCalls = 0;
@@ -107,7 +107,7 @@ export function summariseActivities(
   for (const a of live) {
     if (isOutreachAction(a.actionType)) orgs.add(a.organizationId);
     if (countsTowardEmailTarget(a.actionType, policy)) emails += 1;
-    if (countsTowardLinkedinTarget(a.actionType, policy)) linkedinRequests += 1;
+    if (countsTowardLinkedinTarget(a.actionType, policy)) linkedinConnections += 1;
     if (isFirstTouchAction(a.actionType)) firstTouches += 1;
     if (isFollowUpAction(a.actionType)) followUps += 1;
     if (a.actionType === 'phone_call') phoneCalls += 1;
@@ -116,7 +116,7 @@ export function summariseActivities(
 
   return {
     emails,
-    linkedinRequests,
+    linkedinConnections,
     firstTouches,
     followUps,
     uniqueOrganizations: orgs.size,
@@ -129,8 +129,8 @@ export function summariseActivities(
 export const METRIC_DEFINITIONS = {
   emails:
     'Explicitly logged initial and follow-up emails sent by this intern in the period. Self-reported; not independently verified.',
-  linkedinRequests:
-    'First-time LinkedIn connection requests recorded against a prospect. Messages and accepted connections are tracked separately and do not count again.',
+  linkedinConnections:
+    'People who accepted a LinkedIn connection request and were logged by this intern in the period. Each profile counts once. There is no target: interns keep adding to it.',
   replyRate:
     'Organizations with at least one logged reply ÷ organizations that received at least one outreach action in the period.',
   meetingRate:

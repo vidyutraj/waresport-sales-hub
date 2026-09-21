@@ -5,7 +5,8 @@ import { ActionForm, SubmitButton } from '@/components/client/form';
 import { Field, Input, Select } from '@/components/ui';
 
 /**
- * Per-intern (or cohort-default) weekly target editor.
+ * Per-intern (or cohort-default) weekly email target editor. LinkedIn has no
+ * target, so there is nothing to set for it here.
  *
  * Changing a target never rewrites an elapsed week: those are frozen in
  * `weekly_target_snapshots` the first time they are read after the week ends.
@@ -52,21 +53,6 @@ export function TargetOverrideForm({
                 required
               />
             </Field>
-            <Field
-              label="Requests / week"
-              htmlFor={`t-li-${userId ?? 'default'}`}
-              required
-              error={state.fieldErrors.linkedinTarget}
-            >
-              <Input
-                id={`t-li-${userId ?? 'default'}`}
-                name="linkedinTarget"
-                type="number"
-                min={0}
-                defaultValue={100}
-                required
-              />
-            </Field>
             <Field label="Emails / day (advisory)" htmlFor={`t-epd-${userId ?? 'default'}`}>
               <Input
                 id={`t-epd-${userId ?? 'default'}`}
@@ -74,15 +60,6 @@ export function TargetOverrideForm({
                 type="number"
                 min={0}
                 defaultValue={30}
-              />
-            </Field>
-            <Field label="Requests / day (advisory)" htmlFor={`t-lpd-${userId ?? 'default'}`}>
-              <Input
-                id={`t-lpd-${userId ?? 'default'}`}
-                name="linkedinDailyPace"
-                type="number"
-                min={0}
-                defaultValue={20}
               />
             </Field>
           </div>

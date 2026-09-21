@@ -222,8 +222,7 @@ export default async function InternDetailPage({ params }: { params: Promise<{ i
                     <Th>Dates</Th>
                     <Th numeric>Emails</Th>
                     <Th numeric>Target</Th>
-                    <Th numeric>Requests</Th>
-                    <Th numeric>Target</Th>
+                    <Th numeric>LinkedIn connections</Th>
                     <Th numeric>Unique clubs</Th>
                     <Th>Target source</Th>
                   </tr>
@@ -241,10 +240,7 @@ export default async function InternDetailPage({ params }: { params: Promise<{ i
                         <Td numeric className="text-ink-500">
                           {target?.emailTarget ?? '—'}
                         </Td>
-                        <Td numeric>{totals.linkedinRequests}</Td>
-                        <Td numeric className="text-ink-500">
-                          {target?.linkedinTarget ?? '—'}
-                        </Td>
+                        <Td numeric>{totals.linkedinConnections}</Td>
                         <Td numeric>{totals.uniqueOrganizations}</Td>
                         <Td className="text-[12px] text-ink-500">
                           {target ? (TARGET_SOURCE_LABELS[target.source] ?? target.source) : '—'}
@@ -257,8 +253,9 @@ export default async function InternDetailPage({ params }: { params: Promise<{ i
               </TableScroll>
               <CardBody className="border-t border-ink-100">
                 <DefinitionNote>
-                  Emails count explicitly logged initial and follow-up sends. Requests count
-                  first-time LinkedIn connection requests only. All figures are self-reported.
+                  Emails count explicitly logged initial and follow-up sends. LinkedIn connections
+                  count people who accepted, once each, and have no target. All figures are
+                  self-reported.
                 </DefinitionNote>
               </CardBody>
             </Card>

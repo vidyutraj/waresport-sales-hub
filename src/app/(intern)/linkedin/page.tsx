@@ -11,7 +11,6 @@ import {
   DefinitionNote,
   EmptyState,
   PageHeader,
-  ProgressBar,
   SafeLink,
   StatTile,
 } from '@/components/ui';
@@ -26,40 +25,30 @@ export default async function LinkedInPage() {
   const dashboard = await loadInternDashboard(user.id);
   const connections = await asUser(user.id, (tx) => listProspects(tx, { createdBy: user.id }));
 
-  const target = dashboard.context.target?.linkedinTarget ?? null;
-  const achieved = dashboard.weekTotals.linkedinRequests;
+  const thisWeek = dashboard.weekTotals.linkedinConnections;
 
   return (
     <>
       <PageHeader
         title="LinkedIn"
-        description="Every time you connect with someone, log them here. Name, profile link, and anything worth remembering."
+        description="Every time someone accepts your connection request, log them here. There is no weekly number to hit. Keep adding people as they accept."
       />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-2">
         <StatTile
           label="Connections this week"
-          value={achieved}
+          value={thisWeek}
           tone="brand"
-          definition={METRIC_DEFINITIONS.linkedinRequests}
-          sub={target !== null ? `Target ${target}` : undefined}
+          definition={METRIC_DEFINITIONS.linkedinConnections}
         />
-        <StatTile label="People logged in total" value={connections.length} />
+        <StatTile label="Connections in total" value={connections.length} />
       </div>
-
-      {target !== null && target > 0 ? (
-        <Card className="mb-5">
-          <CardBody>
-            <ProgressBar label="This week" value={achieved} max={target} tone="brand" />
-          </CardBody>
-        </Card>
-      ) : null}
 
       <div className="grid gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <CardHeader
             title="Log a connection"
-            description="After you have connected and sent your message."
+            description="Once they have accepted your request."
           />
           <CardBody>
             <LogConnectionForm />
@@ -74,7 +63,7 @@ export default async function LinkedInPage() {
           {connections.length === 0 ? (
             <EmptyState
               title="No connections logged yet"
-              description="Connect with someone on LinkedIn, then log them with the form."
+              description="When someone accepts your request on LinkedIn, log them with the form."
             />
           ) : (
             <ul className="divide-y divide-ink-100">
@@ -99,8 +88,8 @@ export default async function LinkedInPage() {
           )}
           <CardBody className="border-t border-ink-100">
             <DefinitionNote>
-              Each profile counts once toward your weekly target, however many times you message
-              them. Logging someone already in your list tells you so rather than counting again.
+              Each person counts once, however many times you message them. If you log someone who
+              is already in your list, you are told so and they are not counted again.
             </DefinitionNote>
           </CardBody>
         </Card>

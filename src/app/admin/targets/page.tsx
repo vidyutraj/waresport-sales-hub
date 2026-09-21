@@ -116,7 +116,6 @@ export default async function TargetsPage({
                   cohortId={cohort.id}
                   current={{
                     emailCountsFollowups: data.policy.emailCountsFollowups,
-                    linkedinCountsFirstRequestOnly: data.policy.linkedinCountsFirstRequestOnly,
                     version: data.policy.version,
                   }}
                 />
@@ -130,7 +129,7 @@ export default async function TargetsPage({
             <Card>
               <EmptyState
                 title="No cohort yet"
-                description="Create one on the left. It will be seeded with the targets printed in the program guide: 75 emails / 50 requests in week 1, then 150 / 100."
+                description="Create one on the left. It will be seeded with the email targets printed in the program guide: 75 in week 1, then 150. LinkedIn has no target."
               />
             </Card>
           ) : (
@@ -157,9 +156,7 @@ export default async function TargetsPage({
                       <Th>Week</Th>
                       <Th>Dates</Th>
                       <Th numeric>Emails</Th>
-                      <Th numeric>Requests</Th>
                       <Th numeric>Emails/day</Th>
-                      <Th numeric>Requests/day</Th>
                       <Th>Source</Th>
                     </tr>
                   </thead>
@@ -170,8 +167,7 @@ export default async function TargetsPage({
                         t.weekNumber === 1
                           ? PROGRAM_DEFAULT_TARGETS.week1
                           : PROGRAM_DEFAULT_TARGETS.laterWeeks;
-                      const differs =
-                        t.emailTarget !== guide.emails || t.linkedinTarget !== guide.linkedin;
+                      const differs = t.emailTarget !== guide.emails;
                       return (
                         <tr
                           key={t.weekNumber}
@@ -194,14 +190,8 @@ export default async function TargetsPage({
                           <Td numeric className={differs ? 'font-semibold' : undefined}>
                             {t.emailTarget}
                           </Td>
-                          <Td numeric className={differs ? 'font-semibold' : undefined}>
-                            {t.linkedinTarget}
-                          </Td>
                           <Td numeric className="text-ink-500">
                             {t.emailDailyPace}
-                          </Td>
-                          <Td numeric className="text-ink-500">
-                            {t.linkedinDailyPace}
                           </Td>
                           <Td className="text-[12px] text-ink-500">
                             {t.configured ? 'Cohort default' : 'Program guide'}
@@ -225,7 +215,10 @@ export default async function TargetsPage({
                 <CardHeader title="How outreach is counted" />
                 <CardBody className="grid gap-3 text-[13px]">
                   <Definition term="Emails" text={METRIC_DEFINITIONS.emails} />
-                  <Definition term="LinkedIn requests" text={METRIC_DEFINITIONS.linkedinRequests} />
+                  <Definition
+                    term="LinkedIn connections"
+                    text={METRIC_DEFINITIONS.linkedinConnections}
+                  />
                   <Definition term="Reply rate" text={METRIC_DEFINITIONS.replyRate} />
                   <Definition term="Meeting rate" text={METRIC_DEFINITIONS.meetingRate} />
                   <Definition term="Verified held" text={METRIC_DEFINITIONS.verifiedHeld} />

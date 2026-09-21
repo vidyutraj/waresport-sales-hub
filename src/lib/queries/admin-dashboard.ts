@@ -64,7 +64,7 @@ export type AdminDashboard = {
   interns: InternSummary[];
   totals: {
     emails: number;
-    linkedinRequests: number;
+    linkedinConnections: number;
     verifiedHeld: number;
     pendingVerification: number;
     earnedCents: number;
@@ -129,7 +129,7 @@ export async function loadAdminDashboard(
       interns,
       totals: {
         emails: interns.reduce((s, i) => s + i.totals.emails, 0),
-        linkedinRequests: interns.reduce((s, i) => s + i.totals.linkedinRequests, 0),
+        linkedinConnections: interns.reduce((s, i) => s + i.totals.linkedinConnections, 0),
         verifiedHeld: interns.reduce((s, i) => s + i.verifiedHeld, 0),
         pendingVerification: interns.reduce((s, i) => s + i.meetingsPending, 0),
         earnedCents: interns.reduce((s, i) => s + i.compensation.earnedCents, 0),
@@ -275,7 +275,7 @@ async function loadInterns(
   for (const p of people) {
     const totals = totalsByActor.get(p.id) ?? {
       emails: 0,
-      linkedinRequests: 0,
+      linkedinConnections: 0,
       firstTouches: 0,
       followUps: 0,
       phoneCalls: 0,
