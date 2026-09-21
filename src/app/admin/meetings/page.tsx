@@ -2,7 +2,12 @@ import Link from 'next/link';
 import { requireAdmin } from '@/lib/auth/session';
 import { asUser } from '@/lib/db';
 import { loadAdminDashboard } from '@/lib/queries/admin-dashboard';
-import { listMeetings, listPayouts, MEETING_STATUS_LABELS } from '@/lib/services/meetings';
+import {
+  listMeetings,
+  listPayouts,
+  MEETING_STATUS_LABELS,
+  OUTREACH_CHANNEL_LABELS,
+} from '@/lib/services/meetings';
 import {
   formatCents,
   MEETINGS_PER_MILESTONE,
@@ -21,12 +26,14 @@ import {
   LinkButton,
   NotAvailable,
   PageHeader,
+  SafeLink,
   StatTile,
   TableScroll,
   Td,
   Th,
 } from '@/components/ui';
 import { MeetingReviewControls } from '@/components/client/meeting-review-controls';
+import { BookingApprovalControls } from '@/components/client/booking-approval-controls';
 import { PayoutForm } from '@/components/client/payout-form';
 
 export const metadata = { title: 'Meetings & payouts' };
@@ -36,9 +43,10 @@ export default async function AdminMeetingsPage() {
   const user = await requireAdmin();
   const dashboard = await loadAdminDashboard(user.id);
 
-  const { pending, scheduled, settled, payouts, adjustments } = await asUser(
+  const { approvals, pending, scheduled, settled, payouts, adjustments } = await asUser(
     user.id,
     async (tx) => ({
+      approvals: await listMeetings(tx, { status: 'pending_approval', limit: 200 }),
       pending: await listMeetings(tx, { status: 'pending_verification', limit: 200 }),
       scheduled: await listMeetings(tx, { status: 'scheduled', limit: 100 }),
       settled: await listMeetings(tx, { status: 'verified_held', limit: 100 }),
@@ -61,11 +69,16 @@ export default async function AdminMeetingsPage() {
     <>
       <PageHeader
         title="Meetings & payouts"
-        description="Verify that meetings actually took place, then record the manual payments you have made."
+        description="Approve meetings interns have booked, verify that they actually took place, then record the manual payments you have made."
         actions={<LinkButton href="/api/exports/payouts">Export payout ledger</LinkButton>}
       />
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <StatTile
+          label="Awaiting approval"
+          value={approvals.length}
+          tone={approvals.length > 0 ? 'caution' : 'positive'}
+        />
         <StatTile
           label="Awaiting verification"
           value={pending.length}
@@ -102,6 +115,83 @@ export default async function AdminMeetingsPage() {
 
       <Card className="mb-5">
         <CardHeader
+          title={`Booking approvals (${approvals.length})`}
+          description="Meetings interns have logged as booked. Approving schedules them; they still earn nothing until held and verified."
+        />
+        {approvals.length === 0 ? (
+          <EmptyState
+            title="Nothing to approve"
+            description="Meetings interns log as booked appear here."
+          />
+        ) : (
+          <TableScroll>
+            <thead>
+              <tr>
+                <Th>Meeting with</Th>
+                <Th>Intern</Th>
+                <Th>When</Th>
+                <Th>Reached via</Th>
+                <Th>What they know</Th>
+                <Th>Decision</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {approvals.map((m) => (
+                <tr key={m.id}>
+                  <Td>
+                    <span className="font-medium text-ink-900">
+                      {m.contactName ?? m.organizationName}
+                    </span>
+                    {m.organizationId && m.contactName ? (
+                      <Link
+                        href={`/admin/leads/${m.organizationId}`}
+                        className="block text-[12px] text-ink-500 hover:text-brand-600"
+                      >
+                        {m.organizationName}
+                      </Link>
+                    ) : null}
+                    {m.meetingLink ? (
+                      <SafeLink
+                        href={m.meetingLink}
+                        className="block text-[12px] text-brand-600 underline"
+                      >
+                        Meeting link
+                      </SafeLink>
+                    ) : null}
+                  </Td>
+                  <Td>
+                    <Link
+                      href={`/admin/interns/${m.creditedUserId}`}
+                      className="text-ink-900 hover:text-brand-600"
+                    >
+                      {m.creditedUserName}
+                    </Link>
+                  </Td>
+                  <Td className="whitespace-nowrap">
+                    {formatInstant(m.scheduledStartAt, m.scheduledTimezone)}
+                  </Td>
+                  <Td>
+                    {m.outreachChannel ? (
+                      OUTREACH_CHANNEL_LABELS[m.outreachChannel]
+                    ) : (
+                      <NotAvailable label="—" />
+                    )}
+                  </Td>
+                  <Td className="wrap-anywhere max-w-sm">
+                    {m.background ?? m.notes ?? <NotAvailable label="—" />}
+                  </Td>
+                  <Td>
+                    <BookingApprovalControls meetingId={m.id} />
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </TableScroll>
+        )}
+      </Card>
+
+      <Card className="mb-5">
+        <CardHeader
           title={`Verification queue (${pending.length})`}
           description="An intern has submitted these as held. Only an admin or owner can confirm."
         />
@@ -114,7 +204,7 @@ export default async function AdminMeetingsPage() {
           <TableScroll>
             <thead>
               <tr>
-                <Th>Club</Th>
+                <Th>Meeting with</Th>
                 <Th>Credited intern</Th>
                 <Th>Held at</Th>
                 <Th>Notes</Th>
@@ -125,12 +215,16 @@ export default async function AdminMeetingsPage() {
               {pending.map((m) => (
                 <tr key={m.id}>
                   <Td>
-                    <Link
-                      href={`/admin/leads/${m.organizationId}`}
-                      className="font-medium text-ink-900 hover:text-brand-600"
-                    >
-                      {m.organizationName}
-                    </Link>
+                    {m.organizationId ? (
+                      <Link
+                        href={`/admin/leads/${m.organizationId}`}
+                        className="font-medium text-ink-900 hover:text-brand-600"
+                      >
+                        {m.organizationName}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-ink-900">{m.contactName}</span>
+                    )}
                     {m.duplicateClubFlag ? (
                       <Badge tone="caution" className="mt-1 block w-fit">
                         This club already has a verified meeting — check it is not a duplicate
@@ -261,7 +355,7 @@ export default async function AdminMeetingsPage() {
             <TableScroll>
               <thead>
                 <tr>
-                  <Th>Club</Th>
+                  <Th>Meeting with</Th>
                   <Th>Intern</Th>
                   <Th>Held</Th>
                   <Th>Actions</Th>
@@ -270,7 +364,7 @@ export default async function AdminMeetingsPage() {
               <tbody>
                 {settled.map((m) => (
                   <tr key={m.id}>
-                    <Td>{m.organizationName}</Td>
+                    <Td>{m.organizationName ?? m.contactName}</Td>
                     <Td>{m.creditedUserName}</Td>
                     <Td className="whitespace-nowrap">
                       {m.heldAt ? formatInstant(m.heldAt, 'UTC', { timeStyle: undefined }) : '—'}
@@ -302,7 +396,7 @@ export default async function AdminMeetingsPage() {
             <TableScroll>
               <thead>
                 <tr>
-                  <Th>Club</Th>
+                  <Th>Meeting with</Th>
                   <Th>Intern</Th>
                   <Th>Scheduled</Th>
                   <Th>Status</Th>
@@ -311,7 +405,7 @@ export default async function AdminMeetingsPage() {
               <tbody>
                 {scheduled.map((m) => (
                   <tr key={m.id}>
-                    <Td>{m.organizationName}</Td>
+                    <Td>{m.organizationName ?? m.contactName}</Td>
                     <Td>{m.creditedUserName}</Td>
                     <Td className="whitespace-nowrap">
                       {formatInstant(m.scheduledStartAt, m.scheduledTimezone)}

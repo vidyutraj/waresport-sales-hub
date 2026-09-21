@@ -6,15 +6,21 @@ import { asUser } from '@/lib/db';
 import { assertUser } from '@/lib/auth/session';
 import { fail, ok, parseForm, toFormState, type FormState } from '@/lib/form';
 import { loadInternContext } from '@/lib/queries/intern-context';
-import { bookMeeting, rescheduleMeeting, submitHeld } from '@/lib/services/meetings';
+import {
+  bookMeeting,
+  OUTREACH_CHANNELS,
+  rescheduleMeeting,
+  submitHeld,
+} from '@/lib/services/meetings';
 import { analyseUrl } from '@/lib/domain/url';
 import { isValidTimeZone } from '@/lib/domain/time';
 
 /**
  * Intern meeting actions: book, reschedule, submit as held.
  *
- * Verification is deliberately absent — only an admin or owner can verify, and
- * a database trigger rejects the transition even if this file changed.
+ * Approval and verification are deliberately absent. Only an admin or owner
+ * can approve a booking or verify a held meeting, and a database trigger
+ * rejects either transition even if this file changed.
  */
 
 function instantFromLocal(local: string, timeZone: string): Date | null {
@@ -108,7 +114,78 @@ export async function bookMeetingAction(_prev: FormState, formData: FormData): P
   revalidatePath('/meetings');
   revalidatePath(`/leads/${input.organizationId}`);
   revalidatePath('/overview');
-  return ok('Meeting booked. It earns nothing until it has taken place and an admin verifies it.');
+  return ok(
+    'Meeting booked and sent to an admin for approval. It earns nothing until it has taken place and an admin verifies it.',
+  );
+}
+
+const logSchema = z.object({
+  contactName: z.string().trim().min(2, 'Enter who the meeting is with.').max(160),
+  scheduledStartLocal: z.string().trim().min(1, 'Choose when the meeting is.'),
+  scheduledTimezone: z.string().trim().min(1),
+  meetingLink: z.string().trim().min(1, 'Paste the Google Meet link.').max(500),
+  outreachChannel: z.enum(OUTREACH_CHANNELS, { message: 'Choose how you reached them.' }),
+  background: z.string().trim().max(2000).optional(),
+});
+
+/**
+ * Log a meeting that has just been booked, from the Meetings tab.
+ *
+ * It goes to the admin approval queue. It is a standalone log: the intern types
+ * who it is with, and it is not tied to one of their clubs.
+ */
+export async function logBookedMeetingAction(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const user = await assertUser();
+  const parsed = parseForm(logSchema, formData);
+  if (!parsed.ok) return parsed.state;
+  const input = parsed.data;
+
+  if (!isValidTimeZone(input.scheduledTimezone)) {
+    return fail('Choose a valid timezone.', {}, parsed.values);
+  }
+  if (!analyseUrl(input.meetingLink).safe) {
+    return fail(
+      'Check the meeting link.',
+      { meetingLink: 'Paste the full https:// link.' },
+      parsed.values,
+    );
+  }
+  const start = instantFromLocal(input.scheduledStartLocal, input.scheduledTimezone);
+  if (start === null) {
+    return fail(
+      'Enter a valid date and time.',
+      { scheduledStartLocal: 'Invalid date and time.' },
+      parsed.values,
+    );
+  }
+
+  try {
+    await asUser(user.id, async (tx) => {
+      const context = await loadInternContext(tx, user.id);
+      await bookMeeting(tx, {
+        actorUserId: user.id,
+        actorRole: user.role,
+        organizationId: null,
+        contactName: input.contactName,
+        creditedUserId: user.id,
+        cohortId: context.cohort?.id ?? null,
+        scheduledStartAt: start,
+        scheduledTimezone: input.scheduledTimezone,
+        meetingLink: input.meetingLink,
+        outreachChannel: input.outreachChannel,
+        background: input.background ?? null,
+      });
+    });
+  } catch (error) {
+    return toFormState(error, 'Could not log that meeting.');
+  }
+
+  revalidatePath('/meetings');
+  revalidatePath('/admin/meetings');
+  return ok(`Meeting with ${input.contactName} logged and sent to an admin for approval.`);
 }
 
 const heldSchema = z.object({

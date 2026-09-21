@@ -347,7 +347,7 @@ export default async function InternDetailPage({ params }: { params: Promise<{ i
               <TableScroll>
                 <thead>
                   <tr>
-                    <Th>Club</Th>
+                    <Th>Meeting with</Th>
                     <Th>Scheduled</Th>
                     <Th>Held</Th>
                     <Th>Status</Th>
@@ -356,7 +356,7 @@ export default async function InternDetailPage({ params }: { params: Promise<{ i
                 <tbody>
                   {data.meetings.map((m) => (
                     <tr key={m.id}>
-                      <Td>{m.organizationName}</Td>
+                      <Td>{m.organizationName ?? m.contactName}</Td>
                       <Td className="whitespace-nowrap">
                         {formatInstant(m.scheduledStartAt, m.scheduledTimezone)}
                       </Td>

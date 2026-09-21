@@ -89,8 +89,8 @@ export function BookMeetingForm({
         </button>
       </div>
       <p className="text-[12px] text-ink-500">
-        Booking records an intention. It is worth nothing until the meeting has taken place and an
-        admin has verified it.
+        An admin approves the booking first. It is worth nothing until the meeting has taken place
+        and an admin has verified it.
       </p>
     </form>
   );

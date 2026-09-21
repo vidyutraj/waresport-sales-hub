@@ -136,7 +136,13 @@ export async function createMeeting(input: {
   organizationId: string;
   creditedUserId: string;
   cohortId: string;
-  status?: 'scheduled' | 'pending_verification' | 'verified_held' | 'cancelled' | 'no_show';
+  status?:
+    | 'pending_approval'
+    | 'scheduled'
+    | 'pending_verification'
+    | 'verified_held'
+    | 'cancelled'
+    | 'no_show';
   scheduledStartAt?: Date;
   heldAt?: Date | null;
   verifiedBy?: string | null;
@@ -146,13 +152,15 @@ export async function createMeeting(input: {
     const [row] = await tx<{ id: string }[]>`
       INSERT INTO meetings (
         organization_id, credited_user_id, booked_by_user_id, cohort_id,
-        scheduled_start_at, scheduled_timezone, status, held_at, verified_at, verified_by
+        scheduled_start_at, scheduled_timezone, status, held_at, verified_at, verified_by,
+        approved_at
       ) VALUES (
         ${input.organizationId}, ${input.creditedUserId}, ${input.creditedUserId}, ${input.cohortId},
         ${input.scheduledStartAt ?? new Date(Date.now() - 86_400_000)}, 'America/New_York',
         ${status}::meeting_status, ${input.heldAt ?? null},
         ${status === 'verified_held' ? new Date() : null},
-        ${status === 'verified_held' ? (input.verifiedBy ?? input.creditedUserId) : null}
+        ${status === 'verified_held' ? (input.verifiedBy ?? input.creditedUserId) : null},
+        ${status === 'pending_approval' ? null : new Date()}
       )
       RETURNING id`;
     return row!.id;

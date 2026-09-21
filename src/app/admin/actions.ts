@@ -30,6 +30,8 @@ import {
   rejectHeld,
   revertVerification,
   setMeetingOutcome,
+  approveBooking,
+  declineBooking,
   verifyHeld,
   voidPayout,
 } from '@/lib/services/meetings';
@@ -534,7 +536,7 @@ export async function unassignAction(_prev: FormState, formData: FormData): Prom
 
 const meetingActionSchema = z.object({
   meetingId: z.string().uuid(),
-  operation: z.enum(['verify', 'reject', 'revert', 'cancel', 'no_show']),
+  operation: z.enum(['approve', 'decline', 'verify', 'reject', 'revert', 'cancel', 'no_show']),
   reason: z.string().trim().max(300).optional(),
   eligibilityOverrideReason: z.string().trim().max(300).optional(),
 });
@@ -548,12 +550,29 @@ export async function meetingReviewAction(
   if (!parsed.ok) return parsed.state;
   const { meetingId, operation, reason, eligibilityOverrideReason } = parsed.data;
 
-  if ((operation === 'reject' || operation === 'revert') && !reason) {
+  if ((operation === 'reject' || operation === 'revert' || operation === 'decline') && !reason) {
     return fail('Give a reason.', { reason: 'A reason is required for this action.' });
   }
 
   try {
     const outcome = await asUser(actor.id, async (tx) => {
+      if (operation === 'approve') {
+        await approveBooking(tx, {
+          actorUserId: actor.id,
+          actorRole: actor.role as 'owner' | 'admin',
+          meetingId,
+        });
+        return { overpaymentCents: 0 };
+      }
+      if (operation === 'decline') {
+        await declineBooking(tx, {
+          actorUserId: actor.id,
+          actorRole: actor.role as 'owner' | 'admin',
+          meetingId,
+          reason: reason!,
+        });
+        return { overpaymentCents: 0 };
+      }
       if (operation === 'verify') {
         await verifyHeld(tx, {
           actorUserId: actor.id,
@@ -598,6 +617,10 @@ export async function meetingReviewAction(
     revalidatePath('/meetings');
     revalidatePath('/admin');
 
+    if (operation === 'approve') {
+      return ok('Approved. It is now scheduled; it counts once it is held and verified.');
+    }
+    if (operation === 'decline') return ok('Declined. The intern can see your reason.');
     if (operation === 'verify')
       return ok('Verified. The intern’s earned total has been recalculated.');
     if (operation === 'reject') return ok('Returned to the intern with your reason.');

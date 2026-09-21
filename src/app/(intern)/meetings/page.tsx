@@ -3,7 +3,12 @@ import { requireIntern } from '@/lib/auth/session';
 import { asUser } from '@/lib/db';
 import { loadInternContext } from '@/lib/queries/intern-context';
 import { compensationFor } from '@/lib/queries/metrics';
-import { listMeetings, listPayouts, MEETING_STATUS_LABELS } from '@/lib/services/meetings';
+import {
+  listMeetings,
+  listPayouts,
+  MEETING_STATUS_LABELS,
+  OUTREACH_CHANNEL_LABELS,
+} from '@/lib/services/meetings';
 import { formatCents, MEETINGS_PER_MILESTONE, milestoneHeadline } from '@/lib/domain/compensation';
 import { METRIC_DEFINITIONS } from '@/lib/domain/metrics';
 import { formatDateOnly, formatInstant } from '@/lib/labels';
@@ -18,12 +23,14 @@ import {
   NotAvailable,
   PageHeader,
   ProgressBar,
+  SafeLink,
   StatTile,
   TableScroll,
   Td,
   Th,
 } from '@/components/ui';
 import { SubmitHeldForm } from '@/components/client/submit-held-form';
+import { LogMeetingForm } from '@/components/client/log-meeting-form';
 
 export const metadata = { title: 'Meetings & earnings' };
 export const dynamic = 'force-dynamic';
@@ -49,6 +56,7 @@ export default async function MeetingsPage() {
   });
 
   const { context, meetings, payouts, compensation } = data;
+  const awaitingApproval = meetings.filter((m) => m.status === 'pending_approval');
   const upcoming = meetings.filter((m) => m.status === 'scheduled');
   const pending = meetings.filter((m) => m.status === 'pending_verification');
   const settled = meetings.filter(
@@ -61,6 +69,10 @@ export default async function MeetingsPage() {
         title="Meetings & earnings"
         description="Every 10 meetings that are booked and actually take place earn $100. Your total builds across the whole internship and never resets."
       />
+
+      <div className="mb-5">
+        <LogMeetingForm timezone={user.timezone} />
+      </div>
 
       {compensation === null ? (
         <Alert tone="caution">
@@ -145,6 +157,13 @@ export default async function MeetingsPage() {
 
       <div className="grid gap-5">
         <MeetingTable
+          title="Awaiting approval"
+          description="Booked meetings you have logged. An admin approves them before they are scheduled."
+          rows={awaitingApproval}
+          userTimezone={user.timezone}
+          showSubmit={false}
+        />
+        <MeetingTable
           title="Awaiting verification"
           description="You have submitted these as held. An admin decides."
           rows={pending}
@@ -160,7 +179,7 @@ export default async function MeetingsPage() {
         />
         <MeetingTable
           title="Settled"
-          description="Verified, cancelled and no-show meetings."
+          description="Verified, declined, cancelled and no-show meetings."
           rows={settled}
           userTimezone={user.timezone}
           showSubmit={false}
@@ -239,7 +258,7 @@ function MeetingTable({
         <TableScroll>
           <thead>
             <tr>
-              <Th>Club</Th>
+              <Th>Meeting with</Th>
               <Th>Scheduled</Th>
               <Th>Status</Th>
               <Th>Held</Th>
@@ -250,14 +269,28 @@ function MeetingTable({
             {rows.map((m) => (
               <tr key={m.id}>
                 <Td>
-                  <Link
-                    href={`/leads/${m.organizationId}`}
-                    className="font-medium text-ink-900 hover:text-brand-600"
-                  >
-                    {m.organizationName}
-                  </Link>
-                  {m.contactName ? (
+                  {m.organizationId ? (
+                    <Link
+                      href={`/leads/${m.organizationId}`}
+                      className="font-medium text-ink-900 hover:text-brand-600"
+                    >
+                      {m.organizationName}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-ink-900">{m.contactName}</span>
+                  )}
+                  {m.organizationId && m.contactName ? (
                     <span className="block text-[12px] text-ink-500">{m.contactName}</span>
+                  ) : null}
+                  {m.outreachChannel ? (
+                    <span className="block text-[12px] text-ink-500">
+                      Reached via {OUTREACH_CHANNEL_LABELS[m.outreachChannel]}
+                    </span>
+                  ) : null}
+                  {m.meetingLink ? (
+                    <SafeLink href={m.meetingLink} className="text-[12px] text-brand-600 underline">
+                      Meeting link
+                    </SafeLink>
                   ) : null}
                 </Td>
                 <Td className="whitespace-nowrap">
@@ -268,7 +301,7 @@ function MeetingTable({
                     tone={
                       m.status === 'verified_held'
                         ? 'positive'
-                        : m.status === 'pending_verification'
+                        : m.status === 'pending_verification' || m.status === 'pending_approval'
                           ? 'caution'
                           : 'neutral'
                     }
@@ -277,7 +310,7 @@ function MeetingTable({
                   </Badge>
                   {m.rejectionReason ? (
                     <span className="mt-1 block text-[12px] text-caution-700">
-                      Returned: {m.rejectionReason}
+                      {m.status === 'cancelled' ? 'Declined' : 'Returned'}: {m.rejectionReason}
                     </span>
                   ) : null}
                 </Td>
@@ -288,7 +321,7 @@ function MeetingTable({
                   {showSubmit ? (
                     <SubmitHeldForm meetingId={m.id} timezone={userTimezone} />
                   ) : (
-                    (m.notes ?? <NotAvailable label="—" />)
+                    (m.notes ?? m.background ?? <NotAvailable label="—" />)
                   )}
                 </Td>
               </tr>

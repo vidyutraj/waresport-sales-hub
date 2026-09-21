@@ -2,15 +2,38 @@ import { expect, test, type Page } from '@playwright/test';
 import { INTERN_A, localDateTime, OWNER_EMAIL, signIn, statValue } from './helpers';
 
 /**
- * Acceptance flow 5: an intern books a meeting, submits it as held, an admin
- * verifies it, and earnings update correctly. Includes the tenth verified
+ * Acceptance flow 5: an intern books a meeting, an admin approves the booking,
+ * the intern submits it as held, an admin verifies it, and earnings update
+ * correctly. Includes the tenth verified
  * meeting crossing the $100 milestone, the manual payout, and persistence
  * across a refresh and a brand-new session.
  */
 
 test.describe.configure({ mode: 'serial' });
 
-/** Book a meeting on the intern's Nth assigned club and submit it as held. */
+/**
+ * Approve every booking waiting in the admin queue, in a separate owner session
+ * so the intern's page stays signed in.
+ */
+async function approveAllBookings(page: Page): Promise<void> {
+  const adminContext = await page.context().browser()!.newContext();
+  const admin = await adminContext.newPage();
+  await signIn(admin, OWNER_EMAIL);
+  const queue = admin.getByRole('heading', { name: /^booking approvals \(\d+\)/i });
+  const waiting = async () => {
+    await admin.goto('/admin/meetings');
+    return Number(/\((\d+)\)/.exec(await queue.innerText())?.[1] ?? '0');
+  };
+  let remaining = await waiting();
+  while (remaining > 0) {
+    await admin.getByRole('button', { name: 'Approve', exact: true }).first().click();
+    await expect.poll(waiting).toBe(remaining - 1);
+    remaining -= 1;
+  }
+  await adminContext.close();
+}
+
+/** Book a meeting on the intern's Nth assigned club, have it approved, and submit it as held. */
 async function bookAndSubmit(page: Page, index: number): Promise<void> {
   await page.goto(`/leads?page=1`);
   const links = page.locator('a[href^="/leads/"]');
@@ -22,6 +45,8 @@ async function bookAndSubmit(page: Page, index: number): Promise<void> {
   await page.getByLabel('Scheduled start').fill(localDateTime(-24 * 60));
   await page.getByRole('button', { name: 'Book meeting' }).click();
   await expect(page.getByText(/it earns nothing until it has taken place/i)).toBeVisible();
+
+  await approveAllBookings(page);
 
   await page.goto('/meetings');
   const pending = page.getByRole('heading', { name: /^awaiting verification \(\d+\)/i });
@@ -92,6 +117,7 @@ test('a held time in the future is refused', async ({ page }) => {
   await page.getByLabel('Scheduled start').fill(localDateTime(60 * 24));
   await page.getByRole('button', { name: 'Book meeting' }).click();
   await expect(page.getByText(/it earns nothing until it has taken place/i)).toBeVisible();
+  await approveAllBookings(page);
 
   await page.goto('/meetings');
   await page.getByRole('button', { name: 'Mark as held' }).first().click();

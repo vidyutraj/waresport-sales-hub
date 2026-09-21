@@ -9,6 +9,9 @@ import { recordAudit } from './audit';
  * Meetings, verification and the payout ledger.
  *
  * Correctness rules enforced here and in the database:
+ *  - An intern's booking waits in `pending_approval` until an admin or owner
+ *    approves it (database trigger and `meetings_approval_shape`). Approval
+ *    does not make it payable; it still has to be held and verified.
  *  - Only an admin or owner can move a meeting to `verified_held` (database
  *    trigger `meetings_guard_update`).
  *  - A held date can never be in the future.
@@ -44,9 +47,15 @@ export class PayoutError extends Error {
 }
 
 export type MeetingStatus =
-  'scheduled' | 'pending_verification' | 'verified_held' | 'cancelled' | 'no_show';
+  | 'pending_approval'
+  | 'scheduled'
+  | 'pending_verification'
+  | 'verified_held'
+  | 'cancelled'
+  | 'no_show';
 
 export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
+  pending_approval: 'Awaiting approval',
   scheduled: 'Scheduled',
   pending_verification: 'Pending verification',
   verified_held: 'Verified held',
@@ -54,18 +63,37 @@ export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   no_show: 'No show',
 };
 
+/** How the intern reached the person they are meeting. */
+export const OUTREACH_CHANNELS = ['email', 'linkedin', 'phone', 'referral', 'other'] as const;
+export type OutreachChannel = (typeof OUTREACH_CHANNELS)[number];
+
+export const OUTREACH_CHANNEL_LABELS: Record<OutreachChannel, string> = {
+  email: 'Email',
+  linkedin: 'LinkedIn',
+  phone: 'Phone',
+  referral: 'Referral',
+  other: 'Other',
+};
+
 /** Only `verified_held` is worth anything. */
 export function isPayable(status: MeetingStatus): boolean {
   return status === 'verified_held';
 }
 
+/**
+ * Book a meeting.
+ *
+ * An intern's booking goes to the admin approval queue. An admin or owner
+ * booking on someone's behalf is approved as it is made.
+ */
 export async function bookMeeting(
   tx: Tx,
   input: {
     actorUserId: string;
     actorRole: 'owner' | 'admin' | 'intern';
-    organizationId: string;
+    organizationId: string | null;
     contactId?: string | null;
+    contactName?: string | null;
     prospectId?: string | null;
     creditedUserId: string;
     cohortId: string | null;
@@ -73,26 +101,100 @@ export async function bookMeeting(
     scheduledTimezone: string;
     notes?: string | null;
     referenceUrl?: string | null;
+    meetingLink?: string | null;
+    outreachChannel?: OutreachChannel | null;
+    background?: string | null;
   },
-): Promise<{ meetingId: string }> {
+): Promise<{ meetingId: string; status: MeetingStatus }> {
+  if (input.organizationId === null && !input.contactName) {
+    throw new MeetingError('Say who the meeting is with.', 'invalid_transition');
+  }
+  const approved = input.actorRole !== 'intern';
+  const status: MeetingStatus = approved ? 'scheduled' : 'pending_approval';
+
   const [row] = await tx<{ id: string }[]>`
     INSERT INTO meetings (
-      organization_id, contact_id, prospect_id, credited_user_id, booked_by_user_id,
-      cohort_id, scheduled_start_at, scheduled_timezone, status, notes, reference_url
+      organization_id, contact_id, contact_name, prospect_id, credited_user_id, booked_by_user_id,
+      cohort_id, scheduled_start_at, scheduled_timezone, status, notes, reference_url,
+      meeting_link, outreach_channel, background, approved_at, approved_by
     ) VALUES (
-      ${input.organizationId}, ${input.contactId ?? null}, ${input.prospectId ?? null},
-      ${input.creditedUserId}, ${input.actorUserId}, ${input.cohortId},
-      ${input.scheduledStartAt}, ${input.scheduledTimezone}, 'scheduled',
-      ${input.notes ?? null}, ${input.referenceUrl ?? null}
+      ${input.organizationId}, ${input.contactId ?? null}, ${input.contactName ?? null},
+      ${input.prospectId ?? null}, ${input.creditedUserId}, ${input.actorUserId}, ${input.cohortId},
+      ${input.scheduledStartAt}, ${input.scheduledTimezone}, ${status}::meeting_status,
+      ${input.notes ?? null}, ${input.referenceUrl ?? null}, ${input.meetingLink ?? null},
+      ${input.outreachChannel ?? null}, ${input.background ?? null},
+      ${approved ? new Date() : null}, ${approved ? input.actorUserId : null}
     )
     RETURNING id`;
   if (row === undefined) throw new MeetingError('Could not book that meeting.', 'not_found');
 
   await tx`
     INSERT INTO meeting_events (meeting_id, actor_user_id, event_type, to_status)
-    VALUES (${row.id}, ${input.actorUserId}, 'booked', 'scheduled')`;
+    VALUES (${row.id}, ${input.actorUserId}, 'booked', ${status}::meeting_status)`;
 
-  return { meetingId: row.id };
+  return { meetingId: row.id, status };
+}
+
+/** Admin approval of a booking. It becomes scheduled; it is not yet worth anything. */
+export async function approveBooking(
+  tx: Tx,
+  input: { actorUserId: string; actorRole: 'owner' | 'admin'; meetingId: string },
+): Promise<void> {
+  const [existing] = await tx<{ status: MeetingStatus }[]>`
+    SELECT status FROM meetings WHERE id = ${input.meetingId} FOR UPDATE`;
+  if (existing === undefined) throw new MeetingError('That meeting no longer exists.', 'not_found');
+  if (existing.status !== 'pending_approval') {
+    throw new MeetingError('That booking is not waiting for approval.', 'invalid_transition');
+  }
+
+  await tx`
+    UPDATE meetings
+    SET status = 'scheduled', approved_at = now(), approved_by = ${input.actorUserId},
+        rejection_reason = NULL
+    WHERE id = ${input.meetingId}`;
+  await tx`
+    INSERT INTO meeting_events (meeting_id, actor_user_id, event_type, from_status, to_status)
+    VALUES (${input.meetingId}, ${input.actorUserId}, 'approved', 'pending_approval', 'scheduled')`;
+  await recordAudit(tx, {
+    actorUserId: input.actorUserId,
+    actorRole: input.actorRole,
+    action: 'meeting.approved',
+    entityType: 'meeting',
+    entityId: input.meetingId,
+    before: { status: 'pending_approval' },
+    after: { status: 'scheduled' },
+  });
+}
+
+/** Admin declines a booking. The intern sees the reason. */
+export async function declineBooking(
+  tx: Tx,
+  input: { actorUserId: string; actorRole: 'owner' | 'admin'; meetingId: string; reason: string },
+): Promise<void> {
+  const [existing] = await tx<{ status: MeetingStatus }[]>`
+    SELECT status FROM meetings WHERE id = ${input.meetingId} FOR UPDATE`;
+  if (existing === undefined) throw new MeetingError('That meeting no longer exists.', 'not_found');
+  if (existing.status !== 'pending_approval') {
+    throw new MeetingError('That booking is not waiting for approval.', 'invalid_transition');
+  }
+
+  await tx`
+    UPDATE meetings SET status = 'cancelled', rejection_reason = ${input.reason}
+    WHERE id = ${input.meetingId}`;
+  await tx`
+    INSERT INTO meeting_events (meeting_id, actor_user_id, event_type, from_status, to_status, reason)
+    VALUES (${input.meetingId}, ${input.actorUserId}, 'declined', 'pending_approval', 'cancelled',
+            ${input.reason})`;
+  await recordAudit(tx, {
+    actorUserId: input.actorUserId,
+    actorRole: input.actorRole,
+    action: 'meeting.declined',
+    entityType: 'meeting',
+    entityId: input.meetingId,
+    before: { status: 'pending_approval' },
+    after: { status: 'cancelled' },
+    reason: input.reason,
+  });
 }
 
 /** Rescheduling mutates the existing meeting — never a second payable event. */
@@ -106,24 +208,34 @@ export async function rescheduleMeeting(
     reason?: string | null;
   },
 ): Promise<void> {
-  const [existing] = await tx<{ id: string; status: MeetingStatus; scheduled_start_at: Date }[]>`
-    SELECT id, status, scheduled_start_at FROM meetings WHERE id = ${input.meetingId} FOR UPDATE`;
+  const [existing] = await tx<
+    { id: string; status: MeetingStatus; scheduled_start_at: Date; approved_at: Date | null }[]
+  >`
+    SELECT id, status, scheduled_start_at, approved_at FROM meetings
+    WHERE id = ${input.meetingId} FOR UPDATE`;
   if (existing === undefined) throw new MeetingError('That meeting no longer exists.', 'not_found');
   if (existing.status === 'verified_held') {
     throw new MeetingError('A verified meeting cannot be rescheduled.', 'invalid_transition');
   }
 
+  // Reviving a cancelled or no-show meeting puts it back where it was: on the
+  // schedule if an admin had approved it, otherwise back in the approval queue.
+  // A declined booking can therefore never skip approval by being rescheduled.
+  const revived: MeetingStatus = existing.approved_at ? 'scheduled' : 'pending_approval';
+  const nextStatus: MeetingStatus =
+    existing.status === 'cancelled' || existing.status === 'no_show' ? revived : existing.status;
+
   await tx`
     UPDATE meetings
     SET scheduled_start_at = ${input.scheduledStartAt},
         scheduled_timezone = coalesce(${input.scheduledTimezone ?? null}, scheduled_timezone),
-        status = CASE WHEN status IN ('cancelled', 'no_show') THEN 'scheduled'::meeting_status ELSE status END
+        status = ${nextStatus}::meeting_status
     WHERE id = ${input.meetingId}`;
 
   await tx`
     INSERT INTO meeting_events (meeting_id, actor_user_id, event_type, from_status, to_status, reason, detail)
     VALUES (${input.meetingId}, ${input.actorUserId}, 'rescheduled', ${existing.status}::meeting_status,
-            'scheduled', ${input.reason ?? null},
+            ${nextStatus}::meeting_status, ${input.reason ?? null},
             jsonb_build_object('from', ${existing.scheduled_start_at.toISOString()}::text,
                                'to', ${input.scheduledStartAt.toISOString()}::text))`;
 }
@@ -144,11 +256,17 @@ export async function submitHeld(
     throw new MeetingError('A meeting cannot be recorded as held in the future.', 'future_held');
   }
 
-  const [existing] = await tx<{ status: MeetingStatus }[]>`
-    SELECT status FROM meetings WHERE id = ${input.meetingId} FOR UPDATE`;
+  const [existing] = await tx<{ status: MeetingStatus; approved_at: Date | null }[]>`
+    SELECT status, approved_at FROM meetings WHERE id = ${input.meetingId} FOR UPDATE`;
   if (existing === undefined) throw new MeetingError('That meeting no longer exists.', 'not_found');
   if (existing.status === 'verified_held') {
     throw new MeetingError('That meeting is already verified.', 'invalid_transition');
+  }
+  if (existing.approved_at === null) {
+    throw new MeetingError(
+      'An admin has to approve this booking before it can be submitted as held.',
+      'invalid_transition',
+    );
   }
 
   await tx`
@@ -515,9 +633,14 @@ export async function resolveAdjustment(
 
 export type MeetingRow = {
   id: string;
-  organizationId: string;
-  organizationName: string;
+  organizationId: string | null;
+  organizationName: string | null;
+  /** The club contact if one was picked, otherwise the name the intern typed. */
   contactName: string | null;
+  meetingLink: string | null;
+  outreachChannel: OutreachChannel | null;
+  background: string | null;
+  createdAt: Date;
   creditedUserId: string;
   creditedUserName: string;
   bookedByName: string;
@@ -548,9 +671,13 @@ export async function listMeetings(
   const rows = await tx<
     {
       id: string;
-      organization_id: string;
-      organization_name: string;
+      organization_id: string | null;
+      organization_name: string | null;
       contact_name: string | null;
+      meeting_link: string | null;
+      outreach_channel: OutreachChannel | null;
+      background: string | null;
+      created_at: Date;
       credited_user_id: string;
       credited_user_name: string;
       booked_by_name: string;
@@ -567,7 +694,9 @@ export async function listMeetings(
       duplicate_club_flag: boolean;
     }[]
   >`
-    SELECT m.id, m.organization_id, o.name AS organization_name, c.full_name AS contact_name,
+    SELECT m.id, m.organization_id, o.name AS organization_name,
+           coalesce(c.full_name, m.contact_name) AS contact_name,
+           m.meeting_link, m.outreach_channel, m.background, m.created_at,
            m.credited_user_id,
            coalesce(cu.preferred_name, cu.full_name, cu.email::text, 'Another team member')
              AS credited_user_name,
@@ -581,7 +710,8 @@ export async function listMeetings(
              WHERE m2.organization_id = m.organization_id
                AND m2.status = 'verified_held' AND m2.id <> m.id) > 0 AS duplicate_club_flag
     FROM meetings m
-    JOIN organizations o ON o.id = m.organization_id
+    -- LEFT JOIN: a meeting logged from the Meetings tab may have no club.
+    LEFT JOIN organizations o ON o.id = m.organization_id
     -- LEFT JOIN so a meeting stays visible to the club's current owner even
     -- when the credited intern's profile row is hidden from them by RLS.
     LEFT JOIN users cu ON cu.id = m.credited_user_id
@@ -592,7 +722,9 @@ export async function listMeetings(
       AND (${input.status ?? null}::text IS NULL OR m.status::text = ${input.status ?? null})
       AND (${input.cohortId ?? null}::uuid IS NULL OR m.cohort_id = ${input.cohortId ?? null})
     ORDER BY
-      CASE m.status WHEN 'pending_verification' THEN 0 WHEN 'scheduled' THEN 1 ELSE 2 END,
+      CASE m.status
+        WHEN 'pending_approval' THEN 0 WHEN 'pending_verification' THEN 1
+        WHEN 'scheduled' THEN 2 ELSE 3 END,
       coalesce(m.held_at, m.scheduled_start_at) DESC
     LIMIT ${limit}`;
 
@@ -601,6 +733,10 @@ export async function listMeetings(
     organizationId: r.organization_id,
     organizationName: r.organization_name,
     contactName: r.contact_name,
+    meetingLink: r.meeting_link,
+    outreachChannel: r.outreach_channel,
+    background: r.background,
+    createdAt: r.created_at,
     creditedUserId: r.credited_user_id,
     creditedUserName: r.credited_user_name,
     bookedByName: r.booked_by_name,

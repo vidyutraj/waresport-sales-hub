@@ -81,13 +81,13 @@ test('owner creates a cohort with the program-guide defaults', async ({ page }) 
 
   await expect(page.getByText(/cohort created with the program guide defaults/i)).toBeVisible();
 
-  // Week 1 is 75 / 50 and week 2 is 150 / 100, straight from the PDF.
+  // Week 1 is 75 emails and week 2 is 150, straight from the PDF. LinkedIn has
+  // no target, so the guide's request figures are not shown.
   const week1 = page.getByTestId('target-week-1');
   await expect(week1).toContainText('75');
-  await expect(week1).toContainText('50');
   const week2 = page.getByTestId('target-week-2');
   await expect(week2).toContainText('150');
-  await expect(week2).toContainText('100');
+  await expect(page.getByRole('columnheader', { name: /requests/i })).toHaveCount(0);
 });
 
 test('owner creates two intern profiles', async ({ page }) => {

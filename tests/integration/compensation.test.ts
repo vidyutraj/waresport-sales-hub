@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { asUser } from '@/lib/db';
 import {
   addMembership,
+  assignOrg,
   createCohort,
   createMeeting,
   createOrganization,
@@ -12,8 +13,13 @@ import {
 } from './factories';
 import { compensationFor } from '@/lib/queries/metrics';
 import {
+  approveBooking,
+  bookMeeting,
   changeAttribution,
+  declineBooking,
+  listMeetings,
   recordPayout,
+  rescheduleMeeting,
   revertVerification,
   submitHeld,
   verifyHeld,
@@ -466,5 +472,136 @@ describe('rescheduling', () => {
       verifyHeld(tx, { actorUserId: admin, actorRole: 'admin', meetingId }),
     );
     expect((await comp(user)).verifiedHeldCount).toBe(1);
+  });
+});
+
+describe('booking approval', () => {
+  async function internBooking(user: string, organizationId: string | null = null) {
+    return asUser(user, (tx) =>
+      bookMeeting(tx, {
+        actorUserId: user,
+        actorRole: 'intern',
+        organizationId,
+        contactName: organizationId ? null : 'Casey Prospect',
+        creditedUserId: user,
+        cohortId,
+        scheduledStartAt: new Date(Date.now() - 3 * 3_600_000),
+        scheduledTimezone: 'America/New_York',
+        meetingLink: 'https://meet.google.com/abc-defg-hij',
+        outreachChannel: 'linkedin',
+        background: 'Runs a 14U team.',
+      }),
+    );
+  }
+
+  it('puts an intern booking in the approval queue, with no club needed', async () => {
+    const user = await createUser({ role: 'intern' });
+    await addMembership({ userId: user, cohortId, joinedOn: '2026-03-02' });
+
+    const { meetingId, status } = await internBooking(user);
+    expect(status).toBe('pending_approval');
+
+    const [row] = await asUser(user, (tx) => listMeetings(tx, { creditedUserId: user }));
+    expect(row).toMatchObject({
+      id: meetingId,
+      status: 'pending_approval',
+      organizationId: null,
+      contactName: 'Casey Prospect',
+      meetingLink: 'https://meet.google.com/abc-defg-hij',
+      outreachChannel: 'linkedin',
+    });
+  });
+
+  it('refuses to let an intern submit an unapproved booking as held', async () => {
+    const user = await createUser({ role: 'intern' });
+    await addMembership({ userId: user, cohortId, joinedOn: '2026-03-02' });
+    const { meetingId } = await internBooking(user);
+
+    const error = await expectRejection(
+      asUser(user, (tx) => submitHeld(tx, { actorUserId: user, meetingId, heldAt: new Date() })),
+    );
+    expect(String(error)).toMatch(/approve this booking/i);
+  });
+
+  it('refuses to let an intern approve their own booking, even directly in SQL', async () => {
+    const user = await createUser({ role: 'intern' });
+    await addMembership({ userId: user, cohortId, joinedOn: '2026-03-02' });
+    const { meetingId } = await internBooking(user);
+
+    await expectRejection(
+      asUser(user, (tx) =>
+        approveBooking(tx, { actorUserId: user, actorRole: 'admin', meetingId }),
+      ),
+    );
+    await expectRejection(
+      asUser(
+        user,
+        (tx) => tx`UPDATE meetings SET status = 'scheduled', approved_at = now()
+                   WHERE id = ${meetingId}`,
+      ),
+    );
+    // Nor can an intern insert a meeting that skips the queue.
+    await expectRejection(
+      asUser(
+        user,
+        (tx) => tx`INSERT INTO meetings (contact_name, credited_user_id, booked_by_user_id,
+                                         scheduled_start_at, status, approved_at)
+                   VALUES ('Skip', ${user}, ${user}, now(), 'scheduled', now())`,
+      ),
+    );
+  });
+
+  it('counts only after approval, held and verified', async () => {
+    const user = await createUser({ role: 'intern' });
+    await addMembership({ userId: user, cohortId, joinedOn: '2026-03-02' });
+    const { meetingId } = await internBooking(user);
+
+    await asUser(admin, (tx) =>
+      approveBooking(tx, { actorUserId: admin, actorRole: 'admin', meetingId }),
+    );
+    expect((await comp(user)).verifiedHeldCount).toBe(0);
+
+    await asUser(user, (tx) => submitHeld(tx, { actorUserId: user, meetingId, heldAt: HELD_AT }));
+    await asUser(admin, (tx) =>
+      verifyHeld(tx, { actorUserId: admin, actorRole: 'admin', meetingId }),
+    );
+    expect((await comp(user)).verifiedHeldCount).toBe(1);
+  });
+
+  it('keeps a declined booking out of the schedule, even when rescheduled', async () => {
+    const user = await createUser({ role: 'intern' });
+    await addMembership({ userId: user, cohortId, joinedOn: '2026-03-02' });
+    const { meetingId } = await internBooking(user);
+
+    await asUser(admin, (tx) =>
+      declineBooking(tx, {
+        actorUserId: admin,
+        actorRole: 'admin',
+        meetingId,
+        reason: 'Not a real prospect.',
+      }),
+    );
+    await asUser(user, (tx) =>
+      rescheduleMeeting(tx, {
+        actorUserId: user,
+        meetingId,
+        scheduledStartAt: new Date(Date.now() + 86_400_000),
+      }),
+    );
+
+    const [row] = await asUser(user, (tx) => listMeetings(tx, { creditedUserId: user }));
+    expect(row?.status).toBe('pending_approval');
+  });
+
+  it('lets an intern link a booking only to a club assigned to them', async () => {
+    const user = await createUser({ role: 'intern' });
+    await addMembership({ userId: user, cohortId, joinedOn: '2026-03-02' });
+    const theirs = await createOrganization({ createdBy: admin });
+    const notTheirs = await createOrganization({ createdBy: admin });
+    await assignOrg({ organizationId: theirs, internUserId: user, assignedBy: admin });
+
+    const { status } = await internBooking(user, theirs);
+    expect(status).toBe('pending_approval');
+    await expectRejection(internBooking(user, notTheirs));
   });
 });

@@ -35,7 +35,6 @@ test('changing a cohort target updates the intern goal without rewriting history
   });
   await editor.locator('#t-week-default').selectOption(String(weekNumber));
   await editor.locator('#t-email-default').fill('42');
-  await editor.locator('#t-li-default').fill('24');
   await editor.locator('#t-reason-default').fill('Reduced target for the acceptance run.');
   await editor.getByRole('button', { name: 'Save target' }).click();
   await expect(page.getByText(/weeks that have already ended keep the target/i)).toBeVisible();
